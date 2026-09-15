@@ -1,0 +1,26 @@
+- main [ref=e3]:
+  - button "返回控制台" [ref=e4] [cursor=pointer]:
+    - generic [aria-hidden] [ref=e5]: ←
+    - text: 返回控制台
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - generic [aria-hidden] [ref=e9]: ✣
+      - generic [ref=e10]:
+        - strong [ref=e11]: 武侯课教
+        - generic [ref=e12]: SMART CLASSROOM
+    - generic [aria-hidden] [ref=e15]: ◇
+    - heading "欢迎回到智慧课堂" [level=1] [ref=e16]
+    - paragraph [ref=e17]: 输入你的信息，开启今天的学习旅程
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - text: 姓名
+        - textbox "姓名" [ref=e20]:
+          - /placeholder: 例如：林小满
+      - generic [ref=e21]:
+        - text: 学号
+        - textbox "学号" [ref=e22]:
+          - /placeholder: 例如：08001
+      - button "进入课堂" [ref=e23] [cursor=pointer]:
+        - text: 进入课堂
+        - generic [aria-hidden] [ref=e24]: →
+    - generic [ref=e25]: 演示账号：林小满 / 08001

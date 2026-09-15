@@ -1,0 +1,36 @@
+- main [ref=e3]:
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - generic [aria-hidden] [ref=e9]: ✣
+      - generic [ref=e10]:
+        - strong [ref=e11]: 武侯课教
+        - generic [ref=e12]: SMART CLASSROOM
+    - generic [ref=e13]: V2.0 · 三端联动控制台
+    - heading "武侯课教智慧课堂" [level=1] [ref=e14]
+    - paragraph [ref=e15]: 连接教师、学生与教室大屏，让 AI 参与课堂的每个关键节点。
+    - generic [ref=e16]:
+      - text: 课堂同步通道已就绪
+      - generic [ref=e18]: BroadcastChannel · 演示教室
+    - generic [ref=e19]:
+      - button [ref=e20] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e22]: ▤
+        - strong [ref=e23]: 教师端
+        - paragraph [ref=e24]: 课件控制、发起答题、小组讨论、白板与 AI 助教
+        - generic [ref=e25]:
+          - text: 进入教师教学工作台
+          - generic [aria-hidden] [ref=e26]: →
+      - button [ref=e27] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e29]: ◇
+        - strong [ref=e30]: 学生端
+        - paragraph [ref=e31]: 接收课件提示、答题、讨论任务与查看学习记录
+        - generic [ref=e32]:
+          - text: 打开学生端
+          - generic [aria-hidden] [ref=e33]: →
+      - button [ref=e34] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e36]: ▣
+        - strong [ref=e37]: 教室大屏
+        - paragraph [ref=e38]: 同步课件、互动数据、小组讨论进度和课堂结论
+        - generic [ref=e39]:
+          - text: 打开大屏
+          - generic [aria-hidden] [ref=e40]: →
+    - paragraph [ref=e41]: 提示：在不同标签页打开三个端，即可体验课堂状态实时同步

@@ -1,0 +1,95 @@
+- generic [ref=f2e3]:
+  - banner [ref=f2e4]:
+    - button "武侯课教 SMART CLASSROOM" [ref=f2e5] [cursor=pointer]:
+      - generic [ref=f2e6]:
+        - generic [aria-hidden] [ref=f2e8]: ✣
+        - generic [ref=f2e9]:
+          - strong [ref=f2e10]: 武侯课教
+          - generic [ref=f2e11]: SMART CLASSROOM
+    - generic [ref=f2e12]: / 教师教学工作台
+    - generic [ref=f2e13]:
+      - button "班级管理" [ref=f2e14] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f2e15]: ♙
+        - text: 班级管理
+      - button "资源管理" [ref=f2e16] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f2e17]: ▱
+        - text: 资源管理
+      - generic [ref=f2e18]: 授课中
+      - button "结束上课" [ref=f2e20] [cursor=pointer]
+      - button "师" [ref=f2e21] [cursor=pointer]
+  - generic [ref=f2e22]:
+    - generic [ref=f2e23]:
+      - generic [ref=f2e24]:
+        - generic [ref=f2e25]: 课堂进行中 · 下一目标：理解溶蚀作用
+        - generic [ref=f2e27]: 第 1 / 3 页
+      - generic [ref=f2e28]:
+        - generic [ref=f2e30]:
+          - text: 水与岩石的相遇
+          - heading "一滴水，如何塑造一片喀斯特地貌？" [level=1] [ref=f2e31]
+          - paragraph [ref=f2e32]: 观察、描述、提出你的解释
+          - generic [ref=f2e33]:
+            - generic [ref=f2e34]:
+              - generic [ref=f2e35]: "01"
+              - text: 雨水吸收 CO₂
+            - generic [ref=f2e36]:
+              - generic [ref=f2e37]: "02"
+              - text: 沿石灰岩裂隙下渗
+            - generic [ref=f2e38]:
+              - generic [ref=f2e39]: "03"
+              - text: 溶蚀与沉积塑形
+        - button "展开白板" [ref=f2e40] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f2e41]: ←
+        - complementary [ref=f2e113]:
+          - generic [ref=f2e114]:
+            - generic [ref=f2e115]: 教师录音提问 · 课堂提问
+            - generic [ref=f2e116]: 15s
+          - heading "雨水是怎样一步步塑造喀斯特地貌的？" [level=2] [ref=f2e117]
+          - paragraph [ref=f2e119]: 等待学生回答…
+          - button "停止作答并分析" [ref=f2e120] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f2e121]: ■
+            - text: 停止作答并分析
+      - generic [ref=f2e43]:
+        - button "上一页" [disabled] [ref=f2e44]:
+          - generic [aria-hidden] [ref=f2e45]: ←
+          - text: 上一页
+        - generic [ref=f2e46]:
+          - button "PPT 批注" [ref=f2e47] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f2e48]: ✎
+            - text: PPT 批注
+          - generic [ref=f2e49]:
+            - button "发起提问" [ref=f2e50]:
+              - generic [aria-hidden] [ref=f2e51]: "?"
+            - generic [ref=f2e52]: 点击录音 · 拖拽快照
+          - button "小组讨论" [ref=f2e53] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f2e54]: ◌
+            - text: 小组讨论
+        - button "下一页" [ref=f2e55] [cursor=pointer]:
+          - text: 下一页
+          - generic [aria-hidden] [ref=f2e56]: →
+    - complementary [ref=f2e57]:
+      - generic [ref=f2e58]:
+        - generic [aria-hidden] [ref=f2e60]: ✦
+        - generic [ref=f2e61]:
+          - heading "课堂助教 Agent" [level=2] [ref=f2e62]
+          - paragraph [ref=f2e63]: 在线 · 正在跟随课堂
+      - generic [ref=f2e65]:
+        - generic [aria-hidden] [ref=f2e66]: ✣
+        - text: 当前课堂参与度
+        - strong [ref=f2e67]: 92%
+      - generic [ref=f2e68]:
+        - generic [ref=f2e69]:
+          - paragraph [ref=f2e70]: 你好，我是课堂助教。备课资源已就绪，可以开始上课。
+          - text: 09:28
+        - generic [ref=f2e71]:
+          - paragraph [ref=f2e72]: 课程已开始。全班预习完成率 100%，重点关注“碳酸溶蚀”的理解。
+          - text: 11:42
+        - generic [ref=f2e122]:
+          - paragraph [ref=f2e123]: 已识别老师的语音提问，学生开始作答。
+          - text: 11:43
+      - generic [ref=f2e73]:
+        - button "生成课堂报告" [ref=f2e74] [cursor=pointer]
+        - button "总结学生动态" [ref=f2e75] [cursor=pointer]
+      - generic [ref=f2e76]:
+        - textbox "询问课堂或学生学习动态…" [ref=f2e77]
+        - button [ref=f2e78] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f2e79]: ➤

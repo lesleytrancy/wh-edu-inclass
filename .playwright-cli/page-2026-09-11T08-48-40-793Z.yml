@@ -1,0 +1,48 @@
+- generic [ref=e26]:
+  - banner [ref=e27]:
+    - button "武侯课教 SMART CLASSROOM" [ref=e28] [cursor=pointer]:
+      - generic [ref=e29]:
+        - generic [aria-hidden] [ref=e31]: ✣
+        - generic [ref=e32]:
+          - strong [ref=e33]: 武侯课教
+          - generic [ref=e34]: SMART CLASSROOM
+    - generic [ref=e35]: / 学生端 · 林小满
+    - generic [ref=e36]:
+      - generic [ref=e37]: "08001"
+      - button "满" [ref=e38] [cursor=pointer]
+  - navigation [ref=e39]:
+    - button "课前预习" [ref=e40] [cursor=pointer]
+    - button "课堂互动" [ref=e41] [cursor=pointer]
+    - button "课后复习" [ref=e42] [cursor=pointer]
+  - generic [ref=e43]:
+    - generic [ref=e44]:
+      - generic [ref=e45]:
+        - text: 课堂互动
+        - generic [ref=e75]: ● 与教师端同步
+      - generic [ref=e76]:
+        - generic [ref=e77]:
+          - generic [ref=e78]: 请作答
+          - generic [ref=e79]: "3"
+          - generic [ref=e80]: 秒
+        - heading "雨水是怎样一步步塑造喀斯特地貌的？" [level=1] [ref=e81]
+        - paragraph [ref=e82]: 点击麦克风后直接说出你的答案
+        - button "停止回答" [active] [ref=e86] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e84]: ■
+        - strong [ref=e85]: 正在收音 · 点击停止
+        - generic [ref=e87]:
+          - generic [ref=e88]: 我的回答· 实时转写中
+          - paragraph [ref=e89]: 雨水会沿着石灰岩的裂隙向下渗透……
+    - complementary [ref=e57]:
+      - generic [ref=e58]:
+        - generic [aria-hidden] [ref=e60]: ✦
+        - generic [ref=e61]:
+          - heading "AI 学伴" [level=2] [ref=e62]
+          - paragraph [ref=e63]: 启发式引导 · 不直接给答案
+      - paragraph [ref=e67]: 林小满你好！关于“喀斯特地貌”，我会用提问帮你自己找到答案。
+      - generic [ref=e68]:
+        - button "为什么会形成溶洞？" [ref=e69] [cursor=pointer]
+        - button "引导我分析" [ref=e70] [cursor=pointer]
+      - generic [ref=e71]:
+        - textbox "说说你的想法…" [ref=e72]
+        - button [ref=e73] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e74]: ➤

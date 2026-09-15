@@ -1,0 +1,42 @@
+- generic [ref=e26]:
+  - banner [ref=e27]:
+    - button "武侯课教 SMART CLASSROOM" [ref=e28] [cursor=pointer]:
+      - generic [ref=e29]:
+        - generic [aria-hidden] [ref=e31]: ✣
+        - generic [ref=e32]:
+          - strong [ref=e33]: 武侯课教
+          - generic [ref=e34]: SMART CLASSROOM
+    - generic [ref=e35]: / 学生端 · 林小满
+    - generic [ref=e36]:
+      - generic [ref=e37]: "08001"
+      - button "满" [ref=e38] [cursor=pointer]
+  - navigation [ref=e39]:
+    - button "课前预习" [ref=e40] [cursor=pointer]
+    - button "课堂互动" [ref=e41] [cursor=pointer]
+    - button "课后复习" [ref=e42] [cursor=pointer]
+  - generic [ref=e43]:
+    - generic [ref=e44]:
+      - generic [ref=e45]:
+        - text: 课堂互动
+        - generic [ref=e46]: ● 与教师端同步
+      - generic [ref=e47]:
+        - generic [ref=e49]: 课堂提问
+        - heading "喀斯特地貌形成的主要外力作用是什么？" [level=1] [ref=e50]
+        - paragraph [ref=e51]: 说出你的想法，学伴会帮你组织表达。
+        - generic [ref=e52]:
+          - textbox "在这里写下你的答案…" [ref=e53]
+          - button "提交回答" [ref=e54] [cursor=pointer]
+    - complementary [ref=e55]:
+      - generic [ref=e56]:
+        - generic [aria-hidden] [ref=e58]: ✦
+        - generic [ref=e59]:
+          - heading "AI 学伴" [level=2] [ref=e60]
+          - paragraph [ref=e61]: 启发式引导 · 不直接给答案
+      - paragraph [ref=e65]: 林小满你好！关于“喀斯特地貌”，我会用提问帮你自己找到答案。
+      - generic [ref=e66]:
+        - button "为什么会形成溶洞？" [ref=e67] [cursor=pointer]
+        - button "引导我分析" [ref=e68] [cursor=pointer]
+      - generic [ref=e69]:
+        - textbox "说说你的想法…" [ref=e70]
+        - button [ref=e71] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e72]: ➤

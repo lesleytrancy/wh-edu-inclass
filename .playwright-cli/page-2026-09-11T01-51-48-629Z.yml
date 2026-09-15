@@ -1,0 +1,74 @@
+- generic [ref=e42]:
+  - banner [ref=e43]:
+    - button "武侯课教 SMART CLASSROOM" [ref=e44] [cursor=pointer]:
+      - generic [ref=e45]:
+        - generic [aria-hidden] [ref=e47]: ✣
+        - generic [ref=e48]:
+          - strong [ref=e49]: 武侯课教
+          - generic [ref=e50]: SMART CLASSROOM
+    - generic [ref=e51]: / 教师教学工作台
+    - generic [ref=e52]:
+      - button "班级管理" [ref=e53] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e54]: ♙
+        - text: 班级管理
+      - button "资源管理" [ref=e55] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e56]: ▱
+        - text: 资源管理
+      - button "开始上课" [ref=e57] [cursor=pointer]
+      - button "师" [ref=e58] [cursor=pointer]
+  - generic [ref=e59]:
+    - generic [ref=e60]:
+      - generic [ref=e61]:
+        - generic [ref=e62]: 课前准备 · 下一目标：理解溶蚀作用
+        - generic [ref=e64]: 第 1 / 3 页
+      - generic [ref=e67]:
+        - text: 水与岩石的相遇
+        - heading "一滴水，如何塑造一片喀斯特地貌？" [level=1] [ref=e68]
+        - paragraph [ref=e69]: 观察、描述、提出你的解释
+        - generic [ref=e70]:
+          - generic [ref=e71]:
+            - generic [ref=e72]: "01"
+            - text: 雨水吸收 CO₂
+          - generic [ref=e73]:
+            - generic [ref=e74]: "02"
+            - text: 沿石灰岩裂隙下渗
+          - generic [ref=e75]:
+            - generic [ref=e76]: "03"
+            - text: 溶蚀与沉积塑形
+      - generic [ref=e77]:
+        - button "上一页" [disabled] [ref=e78]:
+          - generic [aria-hidden] [ref=e79]: ←
+          - text: 上一页
+        - generic [ref=e80]:
+          - button "白板" [ref=e81] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e82]: ✎
+            - text: 白板
+          - button "发起提问" [ref=e83] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e84]: "?"
+            - text: 发起提问
+          - button "小组讨论" [ref=e85] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e86]: ◌
+            - text: 小组讨论
+        - button "下一页" [ref=e87] [cursor=pointer]:
+          - text: 下一页
+          - generic [aria-hidden] [ref=e88]: →
+    - complementary [ref=e89]:
+      - generic [ref=e90]:
+        - generic [aria-hidden] [ref=e92]: ✦
+        - generic [ref=e93]:
+          - heading "课堂助教 Agent" [level=2] [ref=e94]
+          - paragraph [ref=e95]: 在线 · 正在跟随课堂
+      - generic [ref=e97]:
+        - generic [aria-hidden] [ref=e98]: ✣
+        - text: 当前课堂参与度
+        - strong [ref=e99]: 92%
+      - generic [ref=e101]:
+        - paragraph [ref=e102]: 你好，我是课堂助教。备课资源已就绪，可以开始上课。
+        - text: 09:28
+      - generic [ref=e103]:
+        - button "生成课堂报告" [ref=e104] [cursor=pointer]
+        - button "总结学生动态" [ref=e105] [cursor=pointer]
+      - generic [ref=e106]:
+        - textbox "询问课堂或学生学习动态…" [ref=e107]
+        - button [ref=e108] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e109]: ➤

@@ -1,0 +1,16 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - generic [aria-hidden] [ref=e7]: ✣
+      - generic [ref=e8]:
+        - strong [ref=e9]: 武侯课教
+        - generic [ref=e10]: SMART CLASSROOM
+    - generic [ref=e11]:
+      - text: 课前准备
+      - generic [ref=e13]: 1 / 3
+    - button [ref=e14] [cursor=pointer]:
+      - generic [aria-hidden] [ref=e15]: ×
+  - generic [ref=e16]:
+    - generic [ref=e19]: AI 课堂助教
+    - heading "回答分析中…" [level=1] [ref=e20]
+    - paragraph [ref=e21]: 正在汇总 2 位同学的表达和共性问题

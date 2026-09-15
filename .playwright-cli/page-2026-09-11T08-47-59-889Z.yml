@@ -1,0 +1,45 @@
+- generic [ref=e26]:
+  - banner [ref=e27]:
+    - button "武侯课教 SMART CLASSROOM" [ref=e28] [cursor=pointer]:
+      - generic [ref=e29]:
+        - generic [aria-hidden] [ref=e31]: ✣
+        - generic [ref=e32]:
+          - strong [ref=e33]: 武侯课教
+          - generic [ref=e34]: SMART CLASSROOM
+    - generic [ref=e35]: / 学生端 · 林小满
+    - generic [ref=e36]:
+      - generic [ref=e37]: "08001"
+      - button "满" [ref=e38] [cursor=pointer]
+  - navigation [ref=e39]:
+    - button "课前预习" [ref=e40] [cursor=pointer]
+    - button "课堂互动" [ref=e41] [cursor=pointer]
+    - button "课后复习" [ref=e42] [cursor=pointer]
+  - generic [ref=e43]:
+    - generic [ref=e44]:
+      - generic [ref=e45]: 课前预习
+      - generic [ref=e46]:
+        - generic [aria-hidden] [ref=e48]: ▤
+        - generic [ref=e49]: 今日预习任务
+        - heading "走进喀斯特：水与石灰岩的故事" [level=1] [ref=e50]
+        - paragraph [ref=e51]: 了解二氧化碳溶于水后的变化，并观察典型喀斯特地貌。
+        - generic [ref=e52]:
+          - paragraph [ref=e53]:
+            - generic [aria-hidden] [ref=e54]: ✓
+            - text: 阅读课本第 42–45 页
+          - paragraph [ref=e55]:
+            - generic [aria-hidden] [ref=e56]: ✓
+            - text: 记录一种喀斯特地貌
+    - complementary [ref=e57]:
+      - generic [ref=e58]:
+        - generic [aria-hidden] [ref=e60]: ✦
+        - generic [ref=e61]:
+          - heading "AI 学伴" [level=2] [ref=e62]
+          - paragraph [ref=e63]: 启发式引导 · 不直接给答案
+      - paragraph [ref=e67]: 林小满你好！关于“喀斯特地貌”，我会用提问帮你自己找到答案。
+      - generic [ref=e68]:
+        - button "为什么会形成溶洞？" [ref=e69] [cursor=pointer]
+        - button "引导我分析" [ref=e70] [cursor=pointer]
+      - generic [ref=e71]:
+        - textbox "说说你的想法…" [ref=e72]
+        - button [ref=e73] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e74]: ➤
