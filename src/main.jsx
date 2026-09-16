@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BookOpen, GraduationCap, Monitor, Bot, FolderOpen, Upload, Sparkles, Users, Pencil, CircleHelp, MessagesSquare, Send, ArrowLeft, ArrowRight, Check, Plus, X, Download, Mic, Camera, Square, ChevronDown } from 'lucide-react'
+import { BookOpen, GraduationCap, Monitor, Bot, FolderOpen, Upload, Sparkles, Users, Pencil, CircleHelp, MessagesSquare, Send, ArrowLeft, ArrowRight, Check, Plus, X, Download, Mic, Camera, Square, ChevronDown, Bell } from 'lucide-react'
 import './styles.css'
 import { seedStudents, migrateStudents } from './students.js'
 import { createDiscussion, defaultDiscussionQuestion, joinDiscussion, startDiscussion, setGroupAnswer, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from './discussion.js'
 import { setQuestionAnswer } from './questions.js'
 import { useVoiceCapture } from './useVoiceCapture.js'
-import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, reportLearningFeedback } from './learning.js'
+import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, reportLearningFeedback, publishLearningPack } from './learning.js'
 import { saveMaterials, useMaterial, getMaterialPage, turnMaterialPage } from './materials.js'
 
 const geographyTools = Object.entries(import.meta.glob('../tools/*.html', { query: '?raw', import: 'default' })).map(([path, load]) => ({ name: path.split('/').pop().replace(/\.html$/i, ''), load })).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
@@ -26,7 +26,7 @@ const icons = {
   folder: FolderOpen, upload: Upload, spark: Sparkles, users: Users,
   pen: Pencil, question: CircleHelp, chat: MessagesSquare, send: Send,
   back: ArrowLeft, next: ArrowRight, check: Check, plus: Plus, close: X,
-  download: Download, mic: Mic, camera: Camera, stop: Square, down: ChevronDown,
+  download: Download, mic: Mic, camera: Camera, stop: Square, down: ChevronDown, bell: Bell,
 }
 
 function useStoredState(key, initial) {
@@ -226,7 +226,7 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
       <button className="ghost teacher-nav" onClick={() => setTeacherPage('materials')}><Icon name="folder" /> 资料管理</button>
       <GeographyToolMenu onSelect={tool => { setTeacherPage('classroom'); setSelectedTool(tool) }} />
       {state.phase !== 'class' ? <button className="primary" disabled={!material} onClick={startClass}>开始上课</button> : <><span className="live"><i />授课中</span><button className="danger" onClick={endClass}>结束上课</button></>}
-      <button className="avatar">师</button>
+      <button className="avatar">范</button>
     </>} />
     <div hidden={teacherPage !== 'classroom'} className={`teacher-grid ${agentCollapsed ? 'agent-collapsed' : ''}`}>
       <section className="stage-card">
@@ -364,6 +364,7 @@ function MaterialWorkspace({ state, students, updateState, view = 'materials', o
   const [error, setError] = useState('')
   const materials = state.materials || []
   const selected = state.analysisMaterialIds || []
+  const packSent = !!state.publishedLearningPack && JSON.stringify(state.learningPack) === JSON.stringify(state.publishedLearningPack)
   const isPdf = material => material.type === 'application/pdf' || /\.pdf$/i.test(material.name)
   const parse = current => {
     if (!current.analysisMaterialIds?.length) return current
@@ -391,14 +392,17 @@ function MaterialWorkspace({ state, students, updateState, view = 'materials', o
     </article>)}</div>
     {!materials.length && <div className="upload-empty"><Icon name="upload" /><h2>课程文件夹为空</h2><p>支持 PDF、Word、PPT、文本和图片资料。</p></div>}
   </section><section className="material-editor">
-    <nav className="material-tabs">{[['preview', '课前预习'], ['discussion', '课中讨论'], ['review', '课后复习']].map(([key, label]) => <button key={key} className={view === key ? 'active' : ''} disabled={!state.learningPack} onClick={() => onView(key)}>{label}</button>)}</nav>
-    {!state.learningPack || view === 'materials' ? <div className="analysis-start"><Icon name="spark" /><h2>选择资料后生成教学内容</h2><p>将生成课前预习资料与测验、课中小组讨论题、课后复习资料与测验。</p><button className="primary" disabled={!selected.length || uploading} onClick={() => { updateState(current => parse(current)); onView('preview') }}><Icon name="spark" /> AI 解析所选资料{selected.length ? `（${selected.length}）` : ''}</button></div> : view === 'discussion' ? <DiscussionContentEditor question={state.discussionQuestion} onSave={question => updateState(current => ({ ...current, discussionQuestion: question, updatedAt: Date.now() }))} /> : <LearningContentEditor stage={view} content={state.learningPack[view]} onSave={content => updateState(current => ({ ...current, learningPack: { ...current.learningPack, [view]: content }, updatedAt: Date.now() }))} />}
+    <nav className="material-tabs">{[['preview', '课前预习'], ['discussion', '课中讨论'], ['review', '课后复习']].map(([key, label]) => <button key={key} className={view === key ? 'active' : ''} disabled={!state.learningPack} onClick={() => onView(key)}>{label}</button>)}<div className="material-tab-actions"><button className={`publish-pack ${packSent ? 'sent' : ''}`} disabled={!state.learningPack || packSent} onClick={() => updateState(current => publishLearningPack(current))}><Icon name={packSent ? 'check' : 'send'} />{packSent ? '已发送' : '发送学生端'}</button><button className="class-preview" disabled={!state.learningPack} onClick={() => onView('classroom')}><Icon name="screen" />课中预览</button></div></nav>
+    {!state.learningPack || view === 'materials' ? <div className="analysis-start"><Icon name="spark" /><h2>选择资料后生成教学内容</h2><p>将生成课前预习资料与测验、课中小组讨论题、课后复习资料与测验。</p><button className="primary" disabled={!selected.length || uploading} onClick={() => { updateState(current => parse(current)); onView('preview') }}><Icon name="spark" /> AI 解析所选资料{selected.length ? `（${selected.length}）` : ''}</button></div> : view === 'discussion' ? <DiscussionContentEditor question={state.discussionQuestion} onSave={question => updateState(current => ({ ...current, discussionQuestion: question, updatedAt: Date.now() }))} /> : <LearningContentEditor key={view} stage={view} content={state.learningPack[view]} onSave={content => updateState(current => ({ ...current, learningPack: { ...current.learningPack, [view]: content }, updatedAt: Date.now() }))} />}
   </section></main>
 }
 
 function LearningContentEditor({ stage, content, onSave }) {
   const [draft, setDraft] = useState(content), [saved, setSaved] = useState(false)
-  useEffect(() => { setDraft(content); setSaved(false) }, [content])
+  useEffect(() => {
+    const incoming = JSON.stringify(content)
+    if (incoming !== JSON.stringify(draft)) { setDraft(content); setSaved(false) }
+  }, [content])
   const updateExercise = (index, patch) => setDraft(current => ({ ...current, exercises: current.exercises.map((exercise, i) => i === index ? { ...exercise, ...patch } : exercise) }))
   const updateOption = (exerciseIndex, optionIndex, value) => setDraft(current => ({ ...current, exercises: current.exercises.map((exercise, i) => i === exerciseIndex ? { ...exercise, options: exercise.options.map((option, j) => j === optionIndex ? value : option) } : exercise) }))
   const addExercise = () => {
@@ -406,7 +410,7 @@ function LearningContentEditor({ stage, content, onSave }) {
     setDraft(current => ({ ...current, exercises: [...current.exercises, { id: `${stage}-${Date.now()}`, question: '', options: ['', '', ''], answer: '' }] }))
   }
   return <form className="content-editor" onSubmit={event => { event.preventDefault(); onSave(draft); setSaved(true) }}>
-    <header><div><small>{stage === 'preview' ? '课前学习材料' : '课后巩固材料'}</small><h2>{draft.title}资料 + 测验</h2></div><button className="primary">{saved ? '已保存 ✓' : '保存修改'}</button></header>
+    <header><div><small>{stage === 'preview' ? '课前学习材料' : '课后巩固材料'}</small><h2>{draft.title}资料 + 测验</h2></div><div className="editor-actions"><button className="primary">{saved ? '已保存 ✓' : '保存修改'}</button></div></header>
     <label>资料标题<input required value={draft.title} onChange={event => { setSaved(false); setDraft(current => ({ ...current, title: event.target.value })) }} /></label>
     <label>学习任务<textarea required value={draft.task} onChange={event => { setSaved(false); setDraft(current => ({ ...current, task: event.target.value })) }} /></label>
     <div className="exercise-heading"><h3>测验题目</h3><button type="button" className="ghost add-exercise" onClick={addExercise}><Icon name="plus" /> 新增题目</button></div>
@@ -493,11 +497,11 @@ function LearningOverview({ stage, state, students }) {
 }
 
 function LearningExercises({ stage, state, student, updateState }) {
-  const content = state.learningPack?.[stage]
+  const content = state.publishedLearningPack?.[stage]
   const submitted = state.learningAnswers?.[stage]?.[student.id] || {}
   const [responses, setResponses] = useState(() => Object.fromEntries(Object.entries(submitted).map(([id, answer]) => [id, answer.text])))
   const [saved, setSaved] = useState(false)
-  if (!content) return <div className="task-content"><h1>等待教师上传并解析资料</h1><p>生成后，{stage === 'preview' ? '课前预习' : '课后复习'}任务与习题会自动出现在这里。</p></div>
+  if (!content) return <div className="task-content"><h1>等待教师发送学习资料</h1><p>教师发送后，{stage === 'preview' ? '课前预习' : '课后复习'}资料与测验会出现在这里。</p></div>
   return <div className="learning-exercises"><small>AI 模拟生成 · {content.title}</small><h1>{content.title}</h1><p>{content.task}</p><form onSubmit={event => { event.preventDefault(); updateState(current => submitLearningAnswers(current, stage, student.id, responses)); setSaved(true) }}>{content.exercises.map((exercise, index) => <fieldset key={exercise.id}><legend>{index + 1}. {exercise.question}</legend>{exercise.options.map(option => <label key={option}><input type="radio" name={exercise.id} required value={option} checked={responses[exercise.id] === option} onChange={() => { setResponses(current => ({ ...current, [exercise.id]: option })); setSaved(false) }} />{option}</label>)}{submitted[exercise.id] && <small>上次回答：{submitted[exercise.id].text} · {submitted[exercise.id].text === exercise.answer ? '正确' : '待订正'}{submitted[exercise.id].simulated && '（模拟记录）'}</small>}</fieldset>)}<button className="primary" disabled={content.exercises.some(exercise => !responses[exercise.id])}>{saved ? '已提交 ✓' : '提交习题'}</button>{saved && <p role="status">已提交，AI 学伴的分析指导请查看右侧学伴窗口。</p>}</form></div>
 }
 
@@ -521,9 +525,16 @@ function Student({ student, onHome, state, updateState }) {
   const [tab, setTab] = useState(state.phase === 'after' ? 'review' : state.phase === 'before' ? 'preview' : 'class')
   const [answer, setAnswer] = useState('')
   const [sent, setSent] = useState(false)
+  const [showNotifications, setShowNotifications] = useState(false)
   useEffect(() => setTab(state.phase === 'after' ? 'review' : state.phase === 'before' ? 'preview' : 'class'), [state.phase])
   const activity = state.activity === 'question' ? { title: '课堂提问', text: state.question } : state.activity === 'discussion' ? { title: '小组讨论', text: state.discussion } : { title: '课堂进行中，请看大屏', text: '请观看教师上传的课中资料' }
-  return <div className="app-shell student-page"><Topbar title={`学生端 · ${student.name}`} onHome={onHome} actions={<><span className="student-tag">{student.id}</span><button className="avatar">{student.name.slice(-1)}</button></>} />
+  const notifications = state.learningNotifications || []
+  const unread = notifications.some(item => item.sentAt > (state.learningNotificationReads?.[student.id] || 0))
+  const openNotifications = () => {
+    setShowNotifications(value => !value)
+    if (!showNotifications && notifications.length) updateState(current => ({ ...current, learningNotificationReads: { ...current.learningNotificationReads, [student.id]: Math.max(...notifications.map(item => item.sentAt)) } }))
+  }
+  return <div className="app-shell student-page"><Topbar title={`学生端 · ${student.name}`} onHome={onHome} actions={<><div className="student-notifications"><button className="notification-button" aria-label="学习资料通知" onClick={openNotifications}><Icon name="bell" />{unread && <i />}</button>{showNotifications && <div className="notification-panel"><strong>学习资料通知</strong>{notifications.length ? notifications.map(item => <button key={item.id} onClick={() => { setTab(item.stage); setShowNotifications(false) }}><b>{item.title}</b><small>{item.stage === 'preview' ? '课前预习' : '课后复习'} · {new Date(item.sentAt).toLocaleString('zh-CN')}</small></button>) : <p>暂无新消息</p>}</div>}</div><span className="student-tag">{student.id}</span><button className="avatar">{student.name.slice(-1)}</button></>} />
     <nav className="student-tabs">{[['preview','课前预习'],['class','课堂互动'],['review','课后复习']].map(([id, label]) => <button className={tab === id ? 'active' : ''} onClick={() => setTab(id)} key={id}>{label}</button>)}</nav>
     <div className="student-grid"><section className="activity-card"><div className="section-label">{tab === 'preview' ? '课前预习' : tab === 'review' ? '课后复习' : '课堂互动'}<span>{state.phase === 'class' ? '● 与教师端同步' : ''}</span></div>
       {tab === 'preview' && <LearningExercises key="preview" stage="preview" state={state} student={student} updateState={updateState} />}

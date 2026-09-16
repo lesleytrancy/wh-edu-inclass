@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, reportLearningFeedback } from '../src/learning.js'
+import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, reportLearningFeedback, publishLearningContent, publishLearningPack } from '../src/learning.js'
 
 const learningPack = createLearningPack()
 const students = [{ id: '1' }, { id: '2' }, { id: '3' }]
@@ -7,6 +7,15 @@ let state = { learningPack, learningAnswers: simulateLearningAnswers(learningPac
 assert.equal(learningPack.preview.exercises.length, 2)
 assert.equal(learningPack.review.exercises.length, 2)
 assert.match(learningPack.preview.task, /42–45/)
+const published = publishLearningContent({ learningPack }, 'preview', learningPack.preview)
+assert.equal(published.publishedLearningPack.preview.title, '课前预习')
+assert.equal(published.learningNotifications[0].stage, 'preview')
+assert.notEqual(published.publishedLearningPack.preview, learningPack.preview)
+assert.equal(publishLearningContent(published, 'discussion', learningPack.preview), published)
+const publishedPack = publishLearningPack({ learningPack })
+assert.equal(publishedPack.publishedLearningPack.preview.title, '课前预习')
+assert.equal(publishedPack.publishedLearningPack.review.title, '课后复习')
+assert.match(publishedPack.learningNotifications[0].title, /课前预习与课后复习/)
 assert.equal(state.learningAnswers.preview['3'], undefined)
 assert.equal(state.learningAnswers.preview['1'].p1.simulated, true)
 assert.equal(submitLearningAnswers(state, 'preview', '3', { p1: '错误选项' }), state)

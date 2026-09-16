@@ -21,10 +21,10 @@ import React, { useEffect, useMemo, useRef, useState } from ${JSON.stringify(rea
 import { setQuestionAnswer } from ${JSON.stringify(new URL('../src/questions.js', import.meta.url).href)};
 import { useVoiceCapture } from ${JSON.stringify(new URL('../src/useVoiceCapture.js', import.meta.url).href)};
 import { createDiscussion, defaultDiscussionQuestion, joinDiscussion, startDiscussion, setGroupAnswer, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from ${JSON.stringify(new URL('../src/discussion.js', import.meta.url).href)};
-import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, reportLearningFeedback } from ${JSON.stringify(new URL('../src/learning.js', import.meta.url).href)};
+import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, reportLearningFeedback, publishLearningContent, publishLearningPack } from ${JSON.stringify(new URL('../src/learning.js', import.meta.url).href)};
 import { saveMaterials, useMaterial, getMaterialPage, turnMaterialPage } from ${JSON.stringify(new URL('../src/materials.js', import.meta.url).href)};
 ${source}
-export { Teacher, StageControls, GeographyTools, GeographyToolMenu, TeacherQuestion, DiscussionSetup, StudentDiscussion, ScreenDiscussion, MaterialWorkspace, LearningOverview, LearningExercises, UploadedPresentation, StudyBuddy, QuestionRecorder, StudentQuestion, CanvasPagination, BigScreen };`
+export { Teacher, Student, StageControls, GeographyTools, GeographyToolMenu, TeacherQuestion, DiscussionSetup, StudentDiscussion, ScreenDiscussion, MaterialWorkspace, LearningOverview, LearningExercises, UploadedPresentation, StudyBuddy, QuestionRecorder, StudentQuestion, CanvasPagination, BigScreen };`
 const { code } = await transformWithOxc(source, 'main.jsx', { jsx: { runtime: 'classic' } })
 const components = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 const students = [{ id: '1', name: '组长甲' }, { id: '2', name: '组长乙' }, { id: '3', name: '组员' }]
@@ -50,13 +50,13 @@ for (const name of ['TeacherQuestion', 'ScreenDiscussion']) {
   assert.match(render(name, { run: result }), /本组实际回答/)
 }
 const learningPack = createLearningPack()
-const prepared = { phase: 'before', slide: 0, materials: [], learningPack, learningAnswers: simulateLearningAnswers(learningPack, students) }
+const prepared = { phase: 'before', slide: 0, materials: [], learningPack, publishedLearningPack: learningPack, learningAnswers: simulateLearningAnswers(learningPack, students) }
 const materialWorkspace = render('MaterialWorkspace', { state: prepared, students })
 assert.match(materialWorkspace, /上传资料到课程文件夹/)
 assert.match(materialWorkspace, /课前预习/)
 assert.match(materialWorkspace, /课中讨论/)
 assert.match(materialWorkspace, /课后复习/)
-const folderState = { ...prepared, materials: [{ id: 'doc', name: '教案.docx', type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }, { id: 'pdf', name: '展示.pdf', type: 'application/pdf' }], analysisMaterialIds: ['doc'] }
+const folderState = { ...prepared, publishedLearningPack: undefined, materials: [{ id: 'doc', name: '教案.docx', type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }, { id: 'pdf', name: '展示.pdf', type: 'application/pdf' }], analysisMaterialIds: ['doc'] }
 const folder = render('MaterialWorkspace', { state: folderState, students })
 assert.match(folder, /教案.docx/)
 assert.match(folder, /仅用于解析/)
@@ -71,9 +71,20 @@ assert.match(previewEditor, /选项 2/)
 assert.match(previewEditor, /选项 3/)
 assert.doesNotMatch(previewEditor, /用中文逗号分隔/)
 assert.match(previewEditor, /保存修改/)
+assert.match(previewEditor, /课中预览/)
+assert.match(previewEditor, /发送学生端/)
+assert.ok(previewEditor.indexOf('课后复习') < previewEditor.indexOf('发送学生端'))
+assert.ok(previewEditor.indexOf('发送学生端') < previewEditor.indexOf('课中预览'))
+const sentEditor = render('MaterialWorkspace', { state: { ...folderState, publishedLearningPack: learningPack }, students, view: 'preview' })
+assert.match(sentEditor, /已发送/)
 const discussionEditor = render('MaterialWorkspace', { state: { ...folderState, discussionQuestion: '可编辑讨论题' }, students, view: 'discussion' })
 assert.match(discussionEditor, /可编辑讨论题/)
 assert.match(discussionEditor, /保存修改/)
+const notifiedStudent = render('Student', { student: students[0], state: { ...prepared, learningNotifications: [{ id: 'notice-1', stage: 'preview', title: '新预习已发布', sentAt: 10 }] } })
+assert.match(notifiedStudent, /学习资料通知/)
+assert.match(notifiedStudent, /<i><\/i><\/button><div class=\"notification-panel\"|<i><\/i><\/button><\/div>/)
+const readStudent = render('Student', { student: students[0], state: { ...prepared, learningNotifications: [{ id: 'notice-1', stage: 'preview', title: '新预习已发布', sentAt: 10 }], learningNotificationReads: { '1': 10 } } })
+assert.doesNotMatch(readStudent, /<i><\/i><\/button><div class=\"notification-panel\"|<i><\/i><\/button><\/div>/)
 for (const stage of ['preview', 'review']) {
   const overview = render('LearningOverview', { stage, state: prepared, students })
   assert.match(overview, /模拟答题记录/)

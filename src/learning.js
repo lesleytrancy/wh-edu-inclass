@@ -23,8 +23,25 @@ export function simulateLearningAnswers(pack, students, existing = {}) {
   return answers
 }
 
+export function publishLearningContent(state, stage, content) {
+  if (!['preview', 'review'].includes(stage) || !content?.title || !content?.task || !content.exercises?.length) return state
+  const sentAt = Date.now()
+  const published = { ...content, exercises: content.exercises.map(exercise => ({ ...exercise, options: [...exercise.options] })) }
+  const notification = { id: `${stage}-${sentAt}`, stage, title: `${content.title}资料与测验已发布`, sentAt }
+  return { ...state, updatedAt: sentAt, learningPack: { ...state.learningPack, [stage]: published }, publishedLearningPack: { ...state.publishedLearningPack, [stage]: published }, learningNotifications: [notification, ...(state.learningNotifications || [])].slice(0, 20) }
+}
+
+export function publishLearningPack(state) {
+  const pack = state.learningPack
+  if (!pack?.preview || !pack?.review) return state
+  const sentAt = Date.now()
+  const copy = Object.fromEntries(['preview', 'review'].map(stage => [stage, { ...pack[stage], exercises: pack[stage].exercises.map(exercise => ({ ...exercise, options: [...exercise.options] })) }]))
+  const notification = { id: `learning-pack-${sentAt}`, stage: 'preview', title: '课前预习与课后复习资料已发布', sentAt }
+  return { ...state, updatedAt: sentAt, publishedLearningPack: copy, learningNotifications: [notification, ...(state.learningNotifications || [])].slice(0, 20) }
+}
+
 export function submitLearningAnswers(state, stage, studentId, responses) {
-  const content = state.learningPack?.[stage]
+  const content = state.publishedLearningPack?.[stage] || state.learningPack?.[stage]
   if (!content || !['preview', 'review'].includes(stage) || content.exercises.some(exercise => !exercise.options.includes(responses[exercise.id]))) return state
   const now = Date.now()
   const answers = Object.fromEntries(content.exercises.map(exercise => [exercise.id, { text: responses[exercise.id], simulated: false, submittedAt: now }]))
