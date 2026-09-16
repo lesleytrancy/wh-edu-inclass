@@ -26,6 +26,30 @@ export function simulateLearningAnswers(pack, students, existing = {}) {
 export function submitLearningAnswers(state, stage, studentId, responses) {
   const content = state.learningPack?.[stage]
   if (!content || !['preview', 'review'].includes(stage) || content.exercises.some(exercise => !exercise.options.includes(responses[exercise.id]))) return state
-  const answers = Object.fromEntries(content.exercises.map(exercise => [exercise.id, { text: responses[exercise.id], simulated: false, submittedAt: Date.now() }]))
-  return { ...state, updatedAt: Date.now(), learningAnswers: { ...state.learningAnswers, [stage]: { ...state.learningAnswers?.[stage], [studentId]: answers } } }
+  const now = Date.now()
+  const answers = Object.fromEntries(content.exercises.map(exercise => [exercise.id, { text: responses[exercise.id], simulated: false, submittedAt: now }]))
+  const hints = {
+    p1: '想一想：雨水吸收气体后为什么会变成弱酸？把气体、碳酸和石灰岩的作用串起来。',
+    p2: '观察岩石内部的缝隙：水通过哪里进入地下？比较完整岩面与有缝隙的位置。',
+    r1: '观察洞顶滴水留下的物质：岩石是在减少，还是有新物质逐渐累积？',
+    r2: '地下空间变大时，原来的岩石去了哪里？区分岩石被水带走和物质重新堆积。',
+  }
+  const items = content.exercises.map((exercise, index) => ({
+    question: exercise.question, response: responses[exercise.id], correct: responses[exercise.id] === exercise.answer,
+    guidance: responses[exercise.id] === exercise.answer ? `第 ${index + 1} 题判断正确。试着用自己的话解释这一过程，并举一个地貌例子。` : `第 ${index + 1} 题需要再想一想。${hints[exercise.id] || '回顾资料中与题目相关的过程，比较各选项的条件和结果。'}`,
+  }))
+  const correctCount = items.filter(item => item.correct).length
+  const feedback = {
+    id: Math.max(now, (state.learningFeedback?.[stage]?.[studentId]?.id || 0) + 1), stage, studentId,
+    summary: `${content.title}：${items.length} 题中 ${correctCount} 题正确。${correctCount === items.length ? '基础概念掌握较好，建议继续解释形成过程。' : '建议结合以下提示回顾知识点，再尝试订正。'}`,
+    items, analyzedAt: now, reportedAt: null,
+  }
+  return { ...state, updatedAt: now, learningAnswers: { ...state.learningAnswers, [stage]: { ...state.learningAnswers?.[stage], [studentId]: answers } }, learningFeedback: { ...state.learningFeedback, [stage]: { ...state.learningFeedback?.[stage], [studentId]: feedback } } }
+}
+
+export function reportLearningFeedback(state, stage, studentId, feedbackId) {
+  const feedback = state.learningFeedback?.[stage]?.[studentId]
+  if (!feedback || feedback.id !== feedbackId || feedback.reportedAt) return state
+  const now = Date.now()
+  return { ...state, updatedAt: now, learningFeedback: { ...state.learningFeedback, [stage]: { ...state.learningFeedback[stage], [studentId]: { ...feedback, reportedAt: now } } } }
 }

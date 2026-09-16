@@ -41,7 +41,7 @@ export function useVoiceCapture(onTranscript) {
       recorder.start()
       setActive(true)
       const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
-      if (!Recognition) { setError('已开启录音；此浏览器不支持语音转写，请同时使用文字输入。'); return }
+      if (!Recognition) { setError('已开启录音；此浏览器不支持语音转写，请停止录音后补充文字。'); return }
       const recognition = new Recognition()
       capture.recognition = recognition
       recognition.lang = 'zh-CN'
@@ -50,9 +50,9 @@ export function useVoiceCapture(onTranscript) {
       recognition.onresult = event => {
         if (session.current === capture) callback.current(Array.from(event.results, result => result[0].transcript).join(''))
       }
-      recognition.onerror = () => { if (session.current === capture) setError('语音转写暂不可用，录音仍在继续；可通过文字输入回答。') }
+      recognition.onerror = () => { if (session.current === capture) setError('语音转写暂不可用，录音仍在继续；请停止录音后补充文字。') }
       recognition.onend = () => { if (session.current === capture) setError('语音转写已停止，录音仍在继续；可停止后重新录音或通过文字输入。') }
-      try { recognition.start() } catch { setError('语音转写无法启动，录音仍在继续；请通过文字输入。') }
+      try { recognition.start() } catch { setError('语音转写无法启动，录音仍在继续；请停止录音后补充文字。') }
     } catch (cause) {
       stream?.getTracks().forEach(track => track.stop())
       if (token === generation.current) { session.current = null; setActive(false); setError(cause.name === 'NotAllowedError' ? '麦克风权限被拒绝，请授权后重试，或通过文字输入。' : cause.message) }

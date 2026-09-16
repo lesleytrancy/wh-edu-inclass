@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createLearningPack, simulateLearningAnswers, submitLearningAnswers } from '../src/learning.js'
+import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, reportLearningFeedback } from '../src/learning.js'
 
 const learningPack = createLearningPack()
 const students = [{ id: '1' }, { id: '2' }, { id: '3' }]
@@ -20,3 +20,21 @@ assert.equal(reparsed.preview['1'].p1.text, '氧气')
 assert.equal(reparsed.preview['1'].p1.simulated, false)
 assert.equal(reparsed.preview['3'].p1.text, '二氧化碳')
 console.log('learning checks passed')
+
+const feedback = state.learningFeedback.preview['1']
+assert.equal(feedback.reportedAt, null)
+assert.equal(feedback.items[0].correct, false)
+assert.equal(feedback.items[1].correct, true)
+assert.match(feedback.items[0].guidance, /弱酸/)
+assert.match(feedback.summary, /2 题中 1 题正确/)
+assert.equal(reportLearningFeedback(state, 'preview', '1', feedback.id - 1), state)
+const reported = reportLearningFeedback(state, 'preview', '1', feedback.id)
+assert.ok(reported.learningFeedback.preview['1'].reportedAt)
+assert.equal(reportLearningFeedback(reported, 'preview', '1', feedback.id), reported)
+const resubmitted = submitLearningAnswers(reported, 'preview', '1', { p1: '二氧化碳', p2: '裂隙' })
+assert.equal(resubmitted.learningFeedback.preview['1'].reportedAt, null)
+assert.ok(resubmitted.learningFeedback.preview['1'].id > feedback.id)
+assert.equal(reportLearningFeedback(resubmitted, 'preview', '1', feedback.id), resubmitted)
+const reviewed = submitLearningAnswers(resubmitted, 'review', '1', { r1: '溶蚀', r2: '溶蚀' })
+assert.match(reviewed.learningFeedback.review['1'].items[0].guidance, /新物质/)
+assert.equal(reviewed.learningFeedback.preview['1'], resubmitted.learningFeedback.preview['1'])

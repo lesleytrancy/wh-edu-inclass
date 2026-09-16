@@ -1,0 +1,29 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - button "武侯课教 SMART CLASSROOM" [ref=e5] [cursor=pointer]:
+      - generic [ref=e12]:
+        - strong [ref=e13]: 武侯课教
+        - generic [ref=e14]: SMART CLASSROOM
+    - generic [ref=e15]: / 教师教学工作台
+    - generic [ref=e16]:
+      - button "教学工作台" [ref=e17] [cursor=pointer]
+      - button "班级管理" [ref=e21] [cursor=pointer]
+      - button "资料管理" [ref=e28] [cursor=pointer]
+      - group [ref=e32]:
+        - generic "地理工具集" [ref=e33] [cursor=pointer]
+      - button "开始上课" [disabled] [ref=e40]
+      - button "师" [ref=e41] [cursor=pointer]
+  - main [ref=e42]:
+    - generic [ref=e43]:
+      - text: 课前准备 · 教师原始资料
+      - heading "准备今天的课堂" [level=1] [ref=e44]
+      - paragraph [ref=e45]: 上传教师课件后自动模拟解析，生成预习、复习与习题；不会生成 PPT。
+      - generic [ref=e46]:
+        - generic [ref=e47] [cursor=pointer]: 上传资料
+        - button "自动解析" [disabled] [ref=e52]
+        - button "查看课前预习" [disabled] [ref=e57]
+        - button "查看课中展示" [disabled] [ref=e58]
+        - button "查看课后复习" [disabled] [ref=e59]
+      - generic [ref=e60]:
+        - heading "先上传备课资料与课中课件" [level=2] [ref=e65]
+        - paragraph [ref=e66]: PDF / 图片可直接展示；PPT / PPTX 请导出 PDF 后上传以便在 Canvas 中批注。

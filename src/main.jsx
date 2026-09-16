@@ -1,18 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { BookOpen, GraduationCap, Monitor, Bot, FolderOpen, Upload, Sparkles, Users, Pencil, CircleHelp, MessagesSquare, Send, ArrowLeft, ArrowRight, Check, Plus, X, Download, Mic, Camera, Square, ChevronDown } from 'lucide-react'
 import './styles.css'
-import { createDiscussion, defaultDiscussionQuestion, joinDiscussion, startDiscussion, setGroupAnswer, summarizeDiscussion } from './discussion.js'
+import { seedStudents, migrateStudents } from './students.js'
+import { createDiscussion, defaultDiscussionQuestion, joinDiscussion, startDiscussion, setGroupAnswer, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from './discussion.js'
+import { setQuestionAnswer } from './questions.js'
 import { useVoiceCapture } from './useVoiceCapture.js'
-import { createLearningPack, simulateLearningAnswers, submitLearningAnswers } from './learning.js'
-import { saveMaterials, useMaterial } from './materials.js'
+import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, reportLearningFeedback } from './learning.js'
+import { saveMaterials, useMaterial, getMaterialPage, turnMaterialPage } from './materials.js'
 
 const geographyTools = Object.entries(import.meta.glob('../tools/*.html', { query: '?raw', import: 'default' })).map(([path, load]) => ({ name: path.split('/').pop().replace(/\.html$/i, ''), load })).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
-
-const seedStudents = [
-  { id: '08001', name: '林小满', score: 92, status: '已完成预习' },
-  { id: '08002', name: '周子航', score: 88, status: '已完成预习' },
-  { id: '08003', name: '陈雨桐', score: 96, status: '互动积极' },
-]
 
 const initialMessages = [
   { from: 'agent', text: '你好，我是课堂助教。请先上传教师课件，系统将模拟生成课前预习、课后复习及习题。', time: '09:28' },
@@ -25,7 +22,11 @@ const slideQuestions = [
 ]
 
 const icons = {
-  book: '▤', cap: '◇', screen: '▣', robot: '✦', folder: '▱', upload: '↑', spark: '✣', users: '♙', pen: '✎', question: '?', chat: '◌', send: '➤', back: '←', next: '→', check: '✓', plus: '+', close: '×', download: '⇩', mic: '♫', camera: '▣', stop: '■'
+  book: BookOpen, cap: GraduationCap, screen: Monitor, robot: Bot,
+  folder: FolderOpen, upload: Upload, spark: Sparkles, users: Users,
+  pen: Pencil, question: CircleHelp, chat: MessagesSquare, send: Send,
+  back: ArrowLeft, next: ArrowRight, check: Check, plus: Plus, close: X,
+  download: Download, mic: Mic, camera: Camera, stop: Square, down: ChevronDown,
 }
 
 function useStoredState(key, initial) {
@@ -36,7 +37,10 @@ function useStoredState(key, initial) {
   return [value, setValue]
 }
 
-function Icon({ name }) { return <span className="icon" aria-hidden="true">{icons[name]}</span> }
+function Icon({ name }) {
+  const Component = icons[name]
+  return <span className="icon" aria-hidden="true"><Component size="1em" strokeWidth={1.8} /></span>
+}
 
 function useCountdown(endAt) {
   const [seconds, setSeconds] = useState(() => Math.max(0, Math.ceil((endAt - Date.now()) / 1000)))
@@ -97,17 +101,58 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
   const [input, setInput] = useState('')
   const [drawMode, setDrawMode] = useState(null)
   const [dragTarget, setDragTarget] = useState(false)
+  const [draggingQuestion, setDraggingQuestion] = useState(false)
   const [snapshotting, setSnapshotting] = useState(false)
   const [selectedTool, setSelectedTool] = useState(null)
   const pptCanvasRef = useRef(null)
   const boardCanvasRef = useRef(null)
+  const pageAnnotations = useRef(new Map())
+  const annotationDirty = useRef(false)
   const materials = state.materials || []
-  const material = materials.find(material => material.id === state.materialId) || materials[0]
-  useEffect(() => { pptCanvasRef.current?.getContext('2d').clearRect(0, 0, 1400, 800) }, [material?.id])
+  const material = materials.find(material => material.id === state.materialId && (material.type === 'application/pdf' || /\.pdf$/i.test(material.name)))
+  const materialPage = getMaterialPage(state, material?.id)
+  useEffect(() => {
+    const context = pptCanvasRef.current?.getContext('2d')
+    if (!context) return
+    const key = `${material?.id}:${materialPage}`
+    context.clearRect(0, 0, 1400, 800)
+    const saved = pageAnnotations.current.get(key)
+    annotationDirty.current = !!saved
+    if (saved) context.putImageData(saved, 0, 0)
+    return () => {
+      if (annotationDirty.current) pageAnnotations.current.set(key, context.getImageData(0, 0, 1400, 800))
+      else pageAnnotations.current.delete(key)
+    }
+  }, [material?.id, materialPage])
   useEffect(() => {
     const run = state.questionRun
     if (run?.kind === 'discussion' && run.status === 'result') setMessages(messages => messages.some(message => message.discussionRunId === run.id) ? messages : [...messages, { from: 'agent', discussionRunId: run.id, text: `小组讨论已结束。${(run.summary || summarizeDiscussion(run)).title}，各组回答与讨论总结已展示。`, time: '刚刚' }])
   }, [state.questionRun?.id, state.questionRun?.status])
+
+  useEffect(() => {
+    const reports = Object.values(state.learningFeedback || {}).flatMap(stage => Object.values(stage)).filter(feedback => feedback.reportedAt)
+    if (!reports.length) return
+    setMessages(current => {
+      const additions = reports.filter(feedback => !current.some(message => message.learningFeedbackId === `${feedback.stage}:${feedback.studentId}:${feedback.id}`)).map(feedback => ({
+        from: 'agent', learningFeedbackId: `${feedback.stage}:${feedback.studentId}:${feedback.id}`,
+        text: `收到 AI 学伴分析 · ${students.find(student => student.id === feedback.studentId)?.name || feedback.studentId}\n${feedback.summary}\n${feedback.items.map(item => `${item.question} 回答：${item.response}。${item.guidance}`).join('\n')}`,
+        time: new Date(feedback.reportedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+      }))
+      return additions.length ? [...current, ...additions] : current
+    })
+  }, [state.learningFeedback, students])
+
+  useEffect(() => {
+    const minutes = Object.values(state.discussionMinutes || {})
+    if (!minutes.length) return
+    setMessages(current => {
+      const additions = minutes.filter(item => !current.some(message => message.discussionMinutesId === `${item.runId}:${item.groupId}:${item.id}`)).map(item => ({
+        from: 'agent', discussionMinutesId: `${item.runId}:${item.groupId}:${item.id}`, text: `收到小组会议纪要\n${item.text}`,
+        time: new Date(item.submittedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+      }))
+      return additions.length ? [...current, ...additions] : current
+    })
+  }, [state.discussionMinutes])
 
   const broadcast = (patch, agentText) => {
     const next = { ...state, ...patch, updatedAt: Date.now() }
@@ -140,22 +185,17 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
   const draw = e => {
     if (!drawMode || !e.currentTarget.hasPointerCapture(e.pointerId)) return
     const c = e.currentTarget, rect = c.getBoundingClientRect(), ctx = c.getContext('2d')
+    if (c === pptCanvasRef.current) annotationDirty.current = true
     ctx.strokeStyle = '#725cff'; ctx.lineWidth = 5; ctx.lineCap = 'round'
     ctx.lineTo((e.clientX - rect.left) * c.width / rect.width, (e.clientY - rect.top) * c.height / rect.height); ctx.stroke()
   }
 
-  const startQuestion = (source, question = slideQuestions[state.slide]) => {
+  const startQuestion = (source, question = slideQuestions[(state.slide || 0) % slideQuestions.length]) => {
     const id = Date.now(), run = { id, source, question, status: 'answering', startedAt: id, endAt: id + 15000, answers: [] }
     setPanel(null)
     setQuestionVisible(true)
     broadcast({ activity: 'question', question, questionRun: run }, source === 'snapshot' ? '已截取黑板内容并自动生成问题，学生开始作答。' : '已识别老师的语音提问，学生开始作答。')
-    const mock = (delay, answer) => setTimeout(() => updateState(current => {
-      const active = current.questionRun
-      if (active?.id !== id || active.status !== 'answering' || active.answers.some(x => x.id === answer.id)) return current
-      return { ...current, updatedAt: Date.now(), questionRun: { ...active, answers: [...active.answers, answer] } }
-    }), delay)
-    mock(2200, { id: '08002', name: '周子航', text: '雨水沿着石灰岩裂隙往下渗……', active: true })
-    mock(5200, { id: '08003', name: '陈雨桐', text: '水里的二氧化碳会溶解碳酸钙，慢慢形成溶洞。', active: true })
+
   }
   const stopQuestion = () => updateState(current => {
     const run = current.questionRun
@@ -163,7 +203,9 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
     return { ...current, updatedAt: Date.now(), questionRun: { ...run, status: 'analyzing', analyzeAt: Date.now() + 1800, answers: run.answers.map(x => ({ ...x, active: false })) } }
   })
   const dropQuestion = e => {
-    e.preventDefault(); setDragTarget(false); setSnapshotting(true)
+    e.preventDefault(); setDragTarget(false); setDraggingQuestion(false)
+    if (e.dataTransfer.getData('text/plain') !== 'question') return
+    setSnapshotting(true)
     setTimeout(() => { setSnapshotting(false); startQuestion('snapshot') }, 650)
   }
   const prepareDiscussion = () => {
@@ -183,14 +225,15 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
       <button className="ghost teacher-nav" onClick={() => setTeacherPage('class')}><Icon name="users" /> 班级管理</button>
       <button className="ghost teacher-nav" onClick={() => setTeacherPage('materials')}><Icon name="folder" /> 资料管理</button>
       <GeographyToolMenu onSelect={tool => { setTeacherPage('classroom'); setSelectedTool(tool) }} />
-      {state.phase !== 'class' ? <button className="primary" disabled={!materials.length} onClick={startClass}>开始上课</button> : <><span className="live"><i />授课中</span><button className="danger" onClick={endClass}>结束上课</button></>}
+      {state.phase !== 'class' ? <button className="primary" disabled={!material} onClick={startClass}>开始上课</button> : <><span className="live"><i />授课中</span><button className="danger" onClick={endClass}>结束上课</button></>}
       <button className="avatar">师</button>
     </>} />
     <div hidden={teacherPage !== 'classroom'} className={`teacher-grid ${agentCollapsed ? 'agent-collapsed' : ''}`}>
       <section className="stage-card">
         <div className="stage-status"><span><i /> {state.phase === 'before' ? '课前准备' : state.phase === 'after' ? '课堂已结束' : '课堂进行中'}</span><b>{selectedTool?.name || material?.name || '请上传课中课件'}</b></div>
         <div className={`slide ${dragTarget ? 'question-drop-target' : ''}`} onDragEnter={() => setDragTarget(true)} onDragOver={e => e.preventDefault()} onDragLeave={e => !e.currentTarget.contains(e.relatedTarget) && setDragTarget(false)} onDrop={dropQuestion}>
-          <UploadedPresentation material={material} />
+          <UploadedPresentation material={material} page={materialPage} onTurn={(direction, total) => updateState(current => turnMaterialPage(current, material.id, direction, total))} showControls={!selectedTool && drawMode !== 'board'} />
+          {draggingQuestion && <div className="question-drop-layer" />} 
           <canvas ref={pptCanvasRef} width="1400" height="800" className={`canvas annotation ${drawMode === 'ppt' ? 'active' : ''}`} onPointerDown={beginDraw} onPointerMove={draw} onPointerUp={e => e.currentTarget.hasPointerCapture(e.pointerId) && e.currentTarget.releasePointerCapture(e.pointerId)} />
           <canvas ref={boardCanvasRef} width="1400" height="800" className={`canvas whiteboard ${drawMode === 'board' ? 'active' : ''}`} onPointerDown={beginDraw} onPointerMove={draw} onPointerUp={e => e.currentTarget.hasPointerCapture(e.pointerId) && e.currentTarget.releasePointerCapture(e.pointerId)} />
           {drawMode === 'board' && <div className="whiteboard-title"><Icon name="pen" /> 空白板 · 独立书写</div>}
@@ -202,29 +245,29 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
           {panel === 'question' && <QuestionRecorder onClose={() => setPanel(null)} onSubmit={question => startQuestion('voice', question)} />}
           {selectedTool && <GeographyTools key={selectedTool.name} selected={selectedTool} />}
         </div>
-        <StageControls usingTool={!!selectedTool} phase={state.phase} onAsk={() => setPanel('question')} onDiscussion={prepareDiscussion} onReturn={() => { setSelectedTool(null); setPanel(null); setTeacherPage('classroom') }}>
-          {drawMode && <button onClick={() => (drawMode === 'board' ? boardCanvasRef : pptCanvasRef).current.getContext('2d').clearRect(0, 0, 1400, 800)}>清空</button>}
-          {['question', 'discussion'].includes(state.activity) && state.questionRun && !questionVisible && <button onClick={() => setQuestionVisible(true)}>{state.activity === 'discussion' ? '查看讨论' : '查看提问'}</button>}
+        <StageControls hideAsk={panel === 'question' || (questionVisible && !!state.questionRun && ['question', 'discussion'].includes(state.activity))} usingTool={!!selectedTool} phase={state.phase} onAsk={() => { setQuestionVisible(true); setPanel('question') }} onDiscussion={prepareDiscussion} onDragStart={() => setDraggingQuestion(true)} onDragEnd={() => { setDraggingQuestion(false); setDragTarget(false) }} onClear={drawMode ? () => { (drawMode === 'board' ? boardCanvasRef : pptCanvasRef).current?.getContext('2d').clearRect(0, 0, 1400, 800); if (drawMode === 'ppt') annotationDirty.current = false } : null} clearLabel={drawMode === 'board' ? '清空白板' : '清空 PPT 标注'} onReturn={() => { setSelectedTool(null); setPanel(null); setDrawMode(null); setQuestionVisible(false); setTeacherPage('classroom') }}>
+          {['question', 'discussion'].includes(state.activity) && state.questionRun && !questionVisible && <button onClick={() => setQuestionVisible(true)}><Icon name="chat" />{state.activity === 'discussion' ? '查看讨论' : '查看提问'}</button>}
         </StageControls>
       </section>
       <Agent messages={messages} input={input} setInput={setInput} send={send} onReport={() => setPanel('report')} collapsed={agentCollapsed} onToggle={() => setAgentCollapsed(value => !value)} />
     </div>
     {teacherPage === 'class' && <ClassManager students={students} setStudents={setStudents} />}
-    {['materials', 'preview', 'review'].includes(teacherPage) && <MaterialWorkspace state={state} students={students} updateState={updateState} view={teacherPage} onView={view => { setPanel(null); setTeacherPage(view) }} />}
+    {['materials', 'preview', 'discussion', 'review'].includes(teacherPage) && <MaterialWorkspace state={state} students={students} updateState={updateState} view={teacherPage} onView={view => { setPanel(null); setTeacherPage(view) }} />}
     {panel === 'report' && <Report state={state} messages={messages} onClose={() => setPanel(null)} />}
   </div>
 }
 
-function StageControls({ usingTool, phase, onAsk, onDiscussion, onReturn, children }) {
+function StageControls({ hideAsk = false, usingTool, phase, onAsk, onDiscussion, onReturn, onDragStart, onDragEnd, onClear, clearLabel, children }) {
   return <div className="stage-controls">
-    {!usingTool && <div className="stage-question-controls">{children}<div className="ask-control"><button className="ask-button" draggable title="点击录音，或拖到黑板快照出题" aria-label="发起提问" onDragStart={e => e.dataTransfer.setData('text/plain', 'question')} onClick={onAsk}><Icon name="question" /></button><small>点击录音 · 拖拽快照</small></div></div>}
-    <div className="stage-right-actions">{!usingTool && <button disabled={phase !== 'class'} onClick={onDiscussion}><Icon name="chat" /> 小组讨论</button>}<button onClick={onReturn}><Icon name="back" /> 返回课中</button></div>
+    {!usingTool && <div className="stage-left-actions">{children}</div>}
+    {!usingTool && !hideAsk && <div className="stage-question-controls"><div className="ask-control"><button className="ask-button" draggable title="点击录音，或拖到黑板快照出题" aria-label="发起提问" onDragStart={e => { e.dataTransfer.setData('text/plain', 'question'); onDragStart?.() }} onDragEnd={onDragEnd} onClick={onAsk}><Icon name="question" /></button><small>点击录音 · 拖拽快照</small></div></div>}
+    <div className="stage-right-actions">{!usingTool && <button disabled={phase !== 'class'} onClick={onDiscussion}><Icon name="chat" /> 小组讨论</button>}{!usingTool && onClear && <button onClick={onClear}>{clearLabel}</button>}<button onClick={onReturn}><Icon name="back" /> 返回课中</button></div>
   </div>
 }
 
 function GeographyToolMenu({ onSelect, tools = geographyTools }) {
   return <details className="geography-tool-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus() } }}>
-    <summary className="ghost teacher-nav"><Icon name="folder" /> 地理工具集 <span aria-hidden="true">▾</span></summary>
+    <summary className="ghost teacher-nav"><Icon name="folder" /> 地理工具集 <Icon name="down" /></summary>
     <div className="geography-tool-options">{tools.map(tool => <button key={tool.name} onClick={event => { event.currentTarget.closest('details').open = false; onSelect(tool) }}>{tool.name}</button>)}{!tools.length && <p>暂无 H5 工具</p>}</div>
   </details>
 }
@@ -248,7 +291,7 @@ function TeacherQuestion({ run, onStop, onClose }) {
   const isDiscussion = run.kind === 'discussion'
   const source = isDiscussion ? '资源预生成 · 小组讨论' : run.source === 'snapshot' ? 'AI 快照生成' : '教师录音提问'
   return <section className={`teacher-question ${run.status === 'result' ? 'result' : ''}`}><header><small>{source} · {run.status === 'result' ? isDiscussion ? '讨论总结' : '分析结果' : isDiscussion ? '小组回答' : '课堂提问'}</small><b>{run.status === 'answering' ? `${seconds}s` : run.status === 'analyzing' ? '分析中' : '已完成'}</b><button className="circle-button" aria-label={isDiscussion ? '关闭讨论展示' : '关闭提问展示'} onClick={onClose}><Icon name="close" /></button></header><h2>{run.question}</h2>
-    {run.status === 'analyzing' ? <div className="teacher-analyzing"><span className="analysis-spinner" /><p>正在分析 {run.answers.filter(answer => answer.text.trim()).length} {isDiscussion ? '个小组' : '位学生'}的回答…</p></div> : run.status === 'result' ? isDiscussion ? <DiscussionSummary run={run} /> : <><div className="teacher-result-score"><strong>82%</strong><span>核心要点命中率</span></div><dl><div><dt>共性问题</dt><dd>对二氧化碳形成碳酸的中间过程描述不完整。</dd></div><div><dt>知识延展</dt><dd>强化“吸收 CO₂ → 形成碳酸 → 溶解碳酸钙”三步链路。</dd></div></dl></> : <><div className="teacher-answer-list">{isDiscussion ? run.groups.map(group => { const answer = run.answers.find(answer => answer.id === group.id); return <p key={group.id}><strong>{group.number}组 · {group.name}</strong><small>小组长：{group.leaderName}{answer?.active && ' · 正在录音'}</small><span>{answer?.text || '等待组长回答…'}</span></p> }) : run.answers.length ? run.answers.map(answer => <p key={answer.id}><strong>{answer.name}{answer.active && ' · 实时回答'}</strong><span>{answer.text}</span></p>) : <p className="empty">等待学生回答…</p>}</div><button onClick={onStop}><Icon name="stop" /> {isDiscussion ? '结束讨论并总结' : '停止作答并分析'}</button></>}
+    {run.status === 'analyzing' ? <div className="teacher-analyzing"><span className="analysis-spinner" /><p>正在分析 {run.answers.filter(answer => answer.text.trim()).length} {isDiscussion ? '个小组' : '位学生'}的回答…</p></div> : run.status === 'result' ? isDiscussion ? <DiscussionSummary run={run} /> : <><div className="teacher-result-score"><strong>82%</strong><span>核心要点命中率</span></div><dl><div><dt>共性问题</dt><dd>对二氧化碳形成碳酸的中间过程描述不完整。</dd></div><div><dt>知识延展</dt><dd>强化“吸收 CO₂ → 形成碳酸 → 溶解碳酸钙”三步链路。</dd></div></dl></> : <><div className="teacher-answer-list">{isDiscussion ? run.groups.map(group => { const answer = run.answers.find(answer => answer.id === group.id); return <p key={group.id}><strong>{group.number}组 · {group.name}</strong><small>小组长：{group.leaderName}{answer?.active && ' · 正在录音'}</small><span>{answer?.text || '等待回答…'}</span></p> }) : run.answers.length ? run.answers.map(answer => <p key={answer.id}><strong>{answer.name}{answer.active && ' · 实时回答'}</strong><span>{answer.text}</span></p>) : <p className="empty">等待学生回答…</p>}</div><button onClick={onStop}><Icon name="stop" /> {isDiscussion ? '结束讨论并总结' : '停止作答并分析'}</button></>}
   </section>
 }
 
@@ -278,9 +321,20 @@ function DiscussionSummary({ run }) {
 
 function QuestionRecorder({ onClose, onSubmit }) {
   const [elapsed, setElapsed] = useState(0)
-  useEffect(() => { const timer = setInterval(() => setElapsed(x => x + 1), 1000); return () => clearInterval(timer) }, [])
-  const transcript = elapsed < 1 ? '正在聆听…' : elapsed < 3 ? '雨水是怎样一步步……' : '雨水是怎样一步步塑造喀斯特地貌的？'
-  return <section className="canvas-recorder"><header className="modal-head"><h2>录制老师提问</h2><button className="circle-button" aria-label="关闭录音" onClick={onClose}><Icon name="close" /></button></header><div className="recorder"><div className="recording-mic"><Icon name="mic" /></div><p><i /> 正在录音　{String(Math.floor(elapsed / 60)).padStart(2, '0')}:{String(elapsed % 60).padStart(2, '0')}</p><div className="sound-wave">{Array.from({ length: 18 }, (_, i) => <span key={i} style={{ animationDelay: `${i * .06}s` }} />)}</div><small>AI 实时转写</small><blockquote>{transcript}</blockquote><button className="primary wide" onClick={() => onSubmit('雨水是怎样一步步塑造喀斯特地貌的？')}><Icon name="stop" /> 结束录音并发起提问</button></div></section>
+  const [text, setText] = useState('')
+  const voiceBase = useRef('')
+  const voice = useVoiceCapture(transcript => setText(`${voiceBase.current}${transcript}`))
+  useEffect(() => { voice.start(); return () => voice.stop() }, [])
+  useEffect(() => {
+    if (!voice.active) return
+    const timer = setInterval(() => setElapsed(value => value + 1), 1000)
+    return () => clearInterval(timer)
+  }, [voice.active])
+  return <section className="canvas-recorder"><header className="modal-head"><h2>录制老师提问</h2><button className="circle-button" aria-label="关闭录音" onClick={onClose}><Icon name="close" /></button></header><div className="recorder"><button className="recording-mic" disabled={voice.pending} aria-label={voice.active ? '停止提问录音' : '开始提问录音'} onClick={() => { if (voice.active) voice.stop(); else { voiceBase.current = text ? `${text}\n` : ''; voice.start() } }}><Icon name={voice.active ? 'stop' : 'mic'} /></button><p>{voice.pending ? '等待麦克风授权…' : voice.active ? '正在录音' : '录音已停止'}　{String(Math.floor(elapsed / 60)).padStart(2, '0')}:{String(elapsed % 60).padStart(2, '0')}</p>{voice.active && <div className="sound-wave">{Array.from({ length: 18 }, (_, i) => <span key={i} style={{ animationDelay: `${i * .06}s` }} />)}</div>}
+    {voice.error && <p className="voice-error" role="status">{voice.error}</p>}
+    <label className="discussion-label">提问内容<textarea value={text} readOnly={voice.active || voice.pending} onChange={event => setText(event.target.value)} placeholder="录音实时转写；停止录音后可修改问题或输入文字" /></label>
+    {voice.audioUrl && <div className="recorded-audio"><audio controls src={voice.audioUrl} /></div>}
+    <button className="primary wide" disabled={voice.pending || !text.trim()} onClick={() => { voice.stop(); onSubmit(text.trim()) }}><Icon name={voice.active ? 'stop' : 'send'} />{voice.active ? '结束录音并发起提问' : '发起提问'}</button></div></section>
 }
 
 function Agent({ messages, input, setInput, send, onReport, collapsed, onToggle }) {
@@ -300,7 +354,7 @@ function ClassManager({ students, setStudents }) {
     e.preventDefault(); const name = new FormData(e.currentTarget).get('name').trim(); if (!name) return
     setStudents(s => editing?.id ? s.map(x => x.id === editing.id ? { ...x, name } : x) : [...s, { id: nextId, name, score: 0, status: '待完成预习' }]); setEditing(null)
   }
-  return <main className="management-page"><section className="management-card"><h1>班级管理</h1><p className="modal-sub">六年级三班 · {students.length} 名学生</p><div className="student-cards">{students.map(s => <button key={s.id} onClick={() => setEditing(s)}><span>{s.name.slice(-1)}</span><strong>{s.name}</strong><small>学号 {s.id}</small><em>{s.status}</em></button>)}<button className="add-student" onClick={() => setEditing({})}><Icon name="plus" /><strong>添加学生</strong><small>学号自动生成</small></button></div>
+  return <main className="management-page"><section className="management-card"><h1>班级管理</h1><p className="modal-sub">六年级三班 · {students.length} 名学生</p><div className="student-cards">{students.map(s => <button key={s.id} onClick={() => setEditing(s)}><span>{s.name.slice(-1)}</span><strong>{s.name}</strong><small>学号 {s.id}{s.group && ` · ${s.group}组`}</small><em>{s.status}</em></button>)}<button className="add-student" onClick={() => setEditing({})}><Icon name="plus" /><strong>添加学生</strong><small>学号自动生成</small></button></div>
     {editing && <form className="inline-form" onSubmit={save}><label>学生姓名<input name="name" defaultValue={editing.name} autoFocus placeholder="请输入姓名" /></label><label>学号<input value={editing.id || nextId} disabled /></label><button className="primary">保存</button>{editing.id && <button type="button" className="danger-text" onClick={() => { setStudents(s => s.filter(x => x.id !== editing.id)); setEditing(null) }}>删除学生</button>}</form>}
   </section></main>
 }
@@ -309,9 +363,12 @@ function MaterialWorkspace({ state, students, updateState, view = 'materials', o
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const materials = state.materials || []
+  const selected = state.analysisMaterialIds || []
+  const isPdf = material => material.type === 'application/pdf' || /\.pdf$/i.test(material.name)
   const parse = current => {
-    const pack = current.learningPack || createLearningPack()
-    return { ...current, updatedAt: Date.now(), resourcesReady: true, learningPack: pack, learningAnswers: simulateLearningAnswers(pack, students, current.learningAnswers), discussionQuestion: current.discussionQuestion || defaultDiscussionQuestion }
+    if (!current.analysisMaterialIds?.length) return current
+    const pack = createLearningPack()
+    return { ...current, updatedAt: Date.now(), resourcesReady: true, learningPack: pack, learningAnswers: simulateLearningAnswers(pack, students, current.learningAnswers), discussionQuestion: defaultDiscussionQuestion, parsedMaterialIds: current.analysisMaterialIds }
   }
   const upload = async event => {
     const input = event.currentTarget, files = Array.from(input.files)
@@ -319,28 +376,109 @@ function MaterialWorkspace({ state, students, updateState, view = 'materials', o
     setUploading(true); setError('')
     try {
       const uploaded = await saveMaterials(files)
-      updateState(current => parse({ ...current, materials: [...(current.materials || []), ...uploaded], materialId: current.materialId || uploaded[0].id }))
+      updateState(current => ({ ...current, materials: [...(current.materials || []), ...uploaded], updatedAt: Date.now() }))
     } catch (error) { setError(error.message || '资料保存失败，请重试。') }
     finally { input.value = ''; setUploading(false) }
   }
-  return <main className="material-workspace"><section className="management-card">
-    <small className="workspace-eyebrow">课前准备 · 教师原始资料</small><h1>准备今天的课堂</h1><p className="modal-sub">上传教师课件后自动模拟解析，生成预习、复习与习题；不会生成 PPT。</p>
-    <div className="workspace-actions"><label className={`upload-button ${uploading ? 'disabled' : ''}`}><Icon name="upload" />{uploading ? '上传并解析中…' : '上传资料'}<input type="file" multiple disabled={uploading} accept=".ppt,.pptx,.pdf,.doc,.docx,.txt,.md,image/*" onChange={upload} /></label><button className="ghost" disabled={!materials.length || uploading} onClick={() => updateState(current => parse(current))}><Icon name="spark" /> 自动解析</button><button className={view === 'preview' ? 'primary' : 'ghost'} disabled={!state.learningPack} onClick={() => onView('preview')}>查看课前预习</button><button className="ghost" disabled={!materials.length || uploading} onClick={() => onView('classroom')}>查看课中展示</button><button className={view === 'review' ? 'primary' : 'ghost'} disabled={!state.learningPack} onClick={() => onView('review')}>查看课后复习</button></div>
+  const toggle = id => updateState(current => ({ ...current, updatedAt: Date.now(), analysisMaterialIds: current.analysisMaterialIds?.includes(id) ? current.analysisMaterialIds.filter(item => item !== id) : [...(current.analysisMaterialIds || []), id] }))
+  return <main className="material-workspace"><section className="material-library">
+    <small className="workspace-eyebrow">课程文件夹</small><h1>准备今天的课堂</h1><p className="modal-sub">上传资料后，选择用于 AI 解析的文件。PDF 可设为课中展示课件。</p>
+    <label className={`upload-button ${uploading ? 'disabled' : ''}`}><Icon name="upload" />{uploading ? '正在上传…' : '上传资料到课程文件夹'}<input type="file" multiple disabled={uploading} accept=".ppt,.pptx,.pdf,.doc,.docx,.txt,.md,image/*" onChange={upload} /></label>
     {error && <p className="voice-error" role="alert">{error}</p>}
-    {materials.length ? <div className="file-list">{materials.map(material => <div key={material.id}><span className="file-icon"><Icon name="folder" /></span><p><strong>{material.name}</strong><small>教师上传 · 原始文件已保存本机</small></p><label className="material-select"><input type="radio" name="class-material" checked={(state.materialId || materials[0].id) === material.id} onChange={() => updateState(current => ({ ...current, materialId: material.id, updatedAt: Date.now() }))} />课中展示</label></div>)}</div> : <div className="upload-empty"><Icon name="upload" /><h2>先上传备课资料与课中课件</h2><p>PDF / 图片可直接展示；PPT / PPTX 请导出 PDF 后上传以便在 Canvas 中批注。</p></div>}
-    {state.learningPack && view === 'materials' && <div className="parse-grid">{['课前预习 + 2 道习题', '课后复习 + 2 道习题', '小组讨论题', '教师原始课件 · 不生成 PPT'].map(text => <div key={text}><Icon name="check" /><strong>{text}</strong><small>模拟解析已完成</small></div>)}</div>}
-    {['preview', 'review'].includes(view) && state.learningPack && <LearningOverview stage={view} state={state} students={students} />}
+    <div className="course-files">{materials.map(material => <article key={material.id} className={selected.includes(material.id) ? 'selected' : ''}>
+      <label className="analysis-check"><input type="checkbox" checked={selected.includes(material.id)} onChange={() => toggle(material.id)} /><span className="file-icon"><Icon name="folder" /></span><span><strong>{material.name}</strong><small>教师上传 · 点击选择用于解析</small></span></label>
+      {isPdf(material) ? <label className="material-select"><input type="radio" name="class-material" checked={state.materialId === material.id} onChange={() => updateState(current => ({ ...current, materialId: material.id, updatedAt: Date.now() }))} />课中展示</label> : <small className="analysis-only">仅用于解析</small>}
+    </article>)}</div>
+    {!materials.length && <div className="upload-empty"><Icon name="upload" /><h2>课程文件夹为空</h2><p>支持 PDF、Word、PPT、文本和图片资料。</p></div>}
+  </section><section className="material-editor">
+    <nav className="material-tabs">{[['preview', '课前预习'], ['discussion', '课中讨论'], ['review', '课后复习']].map(([key, label]) => <button key={key} className={view === key ? 'active' : ''} disabled={!state.learningPack} onClick={() => onView(key)}>{label}</button>)}</nav>
+    {!state.learningPack || view === 'materials' ? <div className="analysis-start"><Icon name="spark" /><h2>选择资料后生成教学内容</h2><p>将生成课前预习资料与测验、课中小组讨论题、课后复习资料与测验。</p><button className="primary" disabled={!selected.length || uploading} onClick={() => { updateState(current => parse(current)); onView('preview') }}><Icon name="spark" /> AI 解析所选资料{selected.length ? `（${selected.length}）` : ''}</button></div> : view === 'discussion' ? <DiscussionContentEditor question={state.discussionQuestion} onSave={question => updateState(current => ({ ...current, discussionQuestion: question, updatedAt: Date.now() }))} /> : <LearningContentEditor stage={view} content={state.learningPack[view]} onSave={content => updateState(current => ({ ...current, learningPack: { ...current.learningPack, [view]: content }, updatedAt: Date.now() }))} />}
   </section></main>
 }
 
-function UploadedPresentation({ material }) {
+function LearningContentEditor({ stage, content, onSave }) {
+  const [draft, setDraft] = useState(content), [saved, setSaved] = useState(false)
+  useEffect(() => { setDraft(content); setSaved(false) }, [content])
+  const updateExercise = (index, patch) => setDraft(current => ({ ...current, exercises: current.exercises.map((exercise, i) => i === index ? { ...exercise, ...patch } : exercise) }))
+  const updateOption = (exerciseIndex, optionIndex, value) => setDraft(current => ({ ...current, exercises: current.exercises.map((exercise, i) => i === exerciseIndex ? { ...exercise, options: exercise.options.map((option, j) => j === optionIndex ? value : option) } : exercise) }))
+  const addExercise = () => {
+    setSaved(false)
+    setDraft(current => ({ ...current, exercises: [...current.exercises, { id: `${stage}-${Date.now()}`, question: '', options: ['', '', ''], answer: '' }] }))
+  }
+  return <form className="content-editor" onSubmit={event => { event.preventDefault(); onSave(draft); setSaved(true) }}>
+    <header><div><small>{stage === 'preview' ? '课前学习材料' : '课后巩固材料'}</small><h2>{draft.title}资料 + 测验</h2></div><button className="primary">{saved ? '已保存 ✓' : '保存修改'}</button></header>
+    <label>资料标题<input required value={draft.title} onChange={event => { setSaved(false); setDraft(current => ({ ...current, title: event.target.value })) }} /></label>
+    <label>学习任务<textarea required value={draft.task} onChange={event => { setSaved(false); setDraft(current => ({ ...current, task: event.target.value })) }} /></label>
+    <div className="exercise-heading"><h3>测验题目</h3><button type="button" className="ghost add-exercise" onClick={addExercise}><Icon name="plus" /> 新增题目</button></div>
+    {draft.exercises.map((exercise, index) => <fieldset key={exercise.id}><legend>第 {index + 1} 题</legend>
+      <label>题目<input required value={exercise.question} onChange={event => { setSaved(false); updateExercise(index, { question: event.target.value }) }} /></label>
+      <div className="option-inputs"><span>选项</span>{exercise.options.map((option, optionIndex) => <label key={optionIndex}>选项 {optionIndex + 1}<input required value={option} onChange={event => { setSaved(false); updateOption(index, optionIndex, event.target.value) }} /></label>)}</div>
+      <label>参考答案<input required value={exercise.answer} onChange={event => { setSaved(false); updateExercise(index, { answer: event.target.value }) }} /></label>
+    </fieldset>)}
+  </form>
+}
+
+function DiscussionContentEditor({ question, onSave }) {
+  const [draft, setDraft] = useState(question), [saved, setSaved] = useState(false)
+  useEffect(() => { setDraft(question); setSaved(false) }, [question])
+  return <form className="content-editor discussion-content-editor" onSubmit={event => { event.preventDefault(); onSave(draft.trim()); setSaved(true) }}><header><div><small>课中互动</small><h2>小组讨论题目</h2></div><button className="primary" disabled={!draft.trim()}>{saved ? '已保存 ✓' : '保存修改'}</button></header><label>讨论问题<textarea value={draft} onChange={event => { setDraft(event.target.value); setSaved(false) }} /></label><p>开始小组讨论时将使用这里保存的问题，教师仍可在课堂中再次调整。</p></form>
+}
+
+function UploadedPresentation({ material, page = 1, onTurn, showControls = true }) {
   const asset = useMaterial(material?.id)
   if (!material) return <div className="presentation-empty"><h2>等待教师上传课中展示资料</h2><p>教师原始课件将在这里展示，不自动生成 PPT。</p></div>
   if (asset.error) return <div className="presentation-empty"><h2>{material.name}</h2><p role="alert">{asset.error}</p></div>
   if (!asset.url) return <div className="presentation-empty">正在读取原始课件…</div>
   if (material.type?.startsWith('image/')) return <img className="uploaded-image" src={asset.url} alt={material.name} />
-  if (/\.pdf$/i.test(material.name) || material.type === 'application/pdf') return <iframe className="uploaded-document" src={asset.url} title={`课中展示：${material.name}`} />
+  if (/\.pdf$/i.test(material.name) || material.type === 'application/pdf') return <PdfPresentation key={material.id} url={asset.url} name={material.name} page={page} onTurn={onTurn} showControls={showControls} />
   return <div className="presentation-empty"><Icon name="folder" /><h2>{material.name}</h2><p>此原始文件不能在浏览器内直接展示。请将课件导出为 PDF 或图片后重新上传。</p><a className="primary" href={asset.url} download={material.name}>下载原始资料</a></div>
+}
+
+function PdfPresentation({ url, name, page, onTurn, showControls }) {
+  const container = useRef(null), canvas = useRef(null)
+  const [pdf, setPdf] = useState(null), [size, setSize] = useState(null)
+  const [busy, setBusy] = useState(true), [error, setError] = useState('')
+  useEffect(() => {
+    let cancelled = false, loading
+    setPdf(null); setError(''); setBusy(true)
+    import('./pdf-renderer.js').then(module => {
+      if (cancelled) return
+      loading = module.loadPdf(url)
+      return loading.promise.then(document => { if (!cancelled) setPdf({ document, render: module.renderPdfPage }) })
+    }).catch(error => { if (!cancelled) { setError(error.message || 'PDF 读取失败'); setBusy(false) } })
+    return () => { cancelled = true; loading?.destroy() }
+  }, [url])
+  useEffect(() => {
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect
+      if (width > 0 && height > 0) setSize({ width, height })
+    })
+    observer.observe(container.current)
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    if (!pdf || !size) return
+    setBusy(true); setError('')
+    const job = pdf.render(pdf.document, Math.min(page, pdf.document.numPages), canvas.current, size)
+    let cancelled = false
+    job.promise.then(() => { if (!cancelled) setBusy(false) }).catch(error => {
+      if (!cancelled) { setError(error.message || 'PDF 页面显示失败'); setBusy(false) }
+    })
+    return () => { cancelled = true; job.cancel() }
+  }, [pdf, page, size])
+  const total = pdf?.document.numPages
+  return <div className="pdf-presentation" ref={container} aria-label={`课中展示：${name} · 第 ${page} 页`} aria-busy={busy}>
+    <canvas ref={canvas} className="pdf-page" />
+    {error ? <p className="pdf-status" role="alert">{error}</p> : busy && <p className="pdf-status" role="status">正在显示第 {page} 页…</p>}
+    {onTurn && showControls && <CanvasPagination page={page} total={total} busy={busy || !!error || !total} onTurn={direction => onTurn(direction, total)} />}
+  </div>
+}
+
+function CanvasPagination({ page, onTurn, total = Infinity, busy = false }) {
+  return <nav className="canvas-pagination" aria-label="课件翻页">
+    <button disabled={busy || page <= 1} aria-label="上一页" title="上一页" onClick={() => onTurn(-1)}><Icon name="back" /></button>
+    <button disabled={busy || page >= total} aria-label="下一页" title="下一页" onClick={() => onTurn(1)}><Icon name="next" /></button>
+  </nav>
 }
 
 function LearningOverview({ stage, state, students }) {
@@ -349,7 +487,8 @@ function LearningOverview({ stage, state, students }) {
     const answers = state.learningAnswers?.[stage]?.[student.id] || {}
     const submitted = content.exercises.filter(exercise => answers[exercise.id])
     const correct = submitted.filter(exercise => answers[exercise.id].text === exercise.answer)
-    return <article key={student.id}><header><strong>{student.name}</strong><small>学号 {student.id}</small><b>{submitted.length ? `${submitted.length}/${content.exercises.length} 已答 · ${correct.length} 题正确` : '未提交'}</b></header>{content.exercises.map((exercise, index) => <p key={exercise.id}><span>第 {index + 1} 题</span><strong>{answers[exercise.id]?.text || '未作答'}</strong><em>{answers[exercise.id] ? answers[exercise.id].text === exercise.answer ? '正确' : '待订正' : '待完成'}</em></p>)}<small>{submitted.length ? submitted.some(exercise => answers[exercise.id].simulated) ? '模拟答题记录' : '学生实际提交' : '等待学生提交'}</small></article>
+    const feedback = state.learningFeedback?.[stage]?.[student.id]
+    return <article key={student.id}><header><strong>{student.name}</strong><small>学号 {student.id}</small><b>{submitted.length ? `${submitted.length}/${content.exercises.length} 已答 · ${correct.length} 题正确` : '未提交'}</b></header>{content.exercises.map((exercise, index) => <p key={exercise.id}><span>第 {index + 1} 题</span><strong>{answers[exercise.id]?.text || '未作答'}</strong><em>{answers[exercise.id] ? answers[exercise.id].text === exercise.answer ? '正确' : '待订正' : '待完成'}</em></p>)}<small>{submitted.length ? submitted.some(exercise => answers[exercise.id].simulated) ? '模拟答题记录' : '学生实际提交' : '等待学生提交'}</small>{feedback?.reportedAt && <div className="learning-feedback"><strong>AI 学伴分析</strong><p>{feedback.summary}</p>{feedback.items.map((item, index) => <p key={index}>{item.guidance}</p>)}</div>}</article>
   })}</div>{!students.length && <p>班级暂无学生。</p>}</section>
 }
 
@@ -359,7 +498,7 @@ function LearningExercises({ stage, state, student, updateState }) {
   const [responses, setResponses] = useState(() => Object.fromEntries(Object.entries(submitted).map(([id, answer]) => [id, answer.text])))
   const [saved, setSaved] = useState(false)
   if (!content) return <div className="task-content"><h1>等待教师上传并解析资料</h1><p>生成后，{stage === 'preview' ? '课前预习' : '课后复习'}任务与习题会自动出现在这里。</p></div>
-  return <div className="learning-exercises"><small>AI 模拟生成 · {content.title}</small><h1>{content.title}</h1><p>{content.task}</p><form onSubmit={event => { event.preventDefault(); updateState(current => submitLearningAnswers(current, stage, student.id, responses)); setSaved(true) }}>{content.exercises.map((exercise, index) => <fieldset key={exercise.id}><legend>{index + 1}. {exercise.question}</legend>{exercise.options.map(option => <label key={option}><input type="radio" name={exercise.id} required value={option} checked={responses[exercise.id] === option} onChange={() => { setResponses(current => ({ ...current, [exercise.id]: option })); setSaved(false) }} />{option}</label>)}{submitted[exercise.id] && <small>上次回答：{submitted[exercise.id].text} · {submitted[exercise.id].text === exercise.answer ? '正确' : '待订正'}{submitted[exercise.id].simulated && '（模拟记录）'}</small>}</fieldset>)}<button className="primary" disabled={content.exercises.some(exercise => !responses[exercise.id])}>{saved ? '已提交 ✓' : '提交习题'}</button>{saved && <p role="status">答题结果已同步给教师。</p>}</form></div>
+  return <div className="learning-exercises"><small>AI 模拟生成 · {content.title}</small><h1>{content.title}</h1><p>{content.task}</p><form onSubmit={event => { event.preventDefault(); updateState(current => submitLearningAnswers(current, stage, student.id, responses)); setSaved(true) }}>{content.exercises.map((exercise, index) => <fieldset key={exercise.id}><legend>{index + 1}. {exercise.question}</legend>{exercise.options.map(option => <label key={option}><input type="radio" name={exercise.id} required value={option} checked={responses[exercise.id] === option} onChange={() => { setResponses(current => ({ ...current, [exercise.id]: option })); setSaved(false) }} />{option}</label>)}{submitted[exercise.id] && <small>上次回答：{submitted[exercise.id].text} · {submitted[exercise.id].text === exercise.answer ? '正确' : '待订正'}{submitted[exercise.id].simulated && '（模拟记录）'}</small>}</fieldset>)}<button className="primary" disabled={content.exercises.some(exercise => !responses[exercise.id])}>{saved ? '已提交 ✓' : '提交习题'}</button>{saved && <p role="status">已提交，AI 学伴的分析指导请查看右侧学伴窗口。</p>}</form></div>
 }
 
 function Report({ state, messages, onClose }) {
@@ -375,102 +514,123 @@ function Report({ state, messages, onClose }) {
 function StudentLogin({ students, onLogin, onHome }) {
   const [error, setError] = useState('')
   const submit = e => { e.preventDefault(); const data = Object.fromEntries(new FormData(e.currentTarget)); const student = students.find(s => s.id === data.id && s.name === data.name); student ? onLogin(student) : setError('姓名或学号不匹配，请重新输入') }
-  return <main className="login-page"><button className="back-home" onClick={onHome}><Icon name="back" /> 返回控制台</button><section className="login-card"><Brand /><div className="login-art"><span><Icon name="cap" /></span></div><h1>欢迎回到智慧课堂</h1><p>输入你的信息，开启今天的学习旅程</p><form onSubmit={submit}><label>姓名<input name="name" placeholder="例如：林小满" /></label><label>学号<input name="id" inputMode="numeric" placeholder="例如：08001" /></label>{error && <p className="form-error">{error}</p>}<button className="primary wide">进入课堂 <Icon name="next" /></button></form><small>演示账号：林小满 / 08001</small></section></main>
+  return <main className="login-page"><button className="back-home" onClick={onHome}><Icon name="back" /> 返回控制台</button><section className="login-card"><Brand /><div className="login-art"><span><Icon name="cap" /></span></div><h1>欢迎回到智慧课堂</h1><p>输入你的信息，开启今天的学习旅程</p><form onSubmit={submit}><label>姓名<input name="name" placeholder="例如：李奕贤" /></label><label>学号<input name="id" inputMode="numeric" placeholder="例如：08001" /></label>{error && <p className="form-error">{error}</p>}<button className="primary wide">进入课堂 <Icon name="next" /></button></form><small>演示账号：李奕贤 / 08001</small></section></main>
 }
 
 function Student({ student, onHome, state, updateState }) {
   const [tab, setTab] = useState(state.phase === 'after' ? 'review' : state.phase === 'before' ? 'preview' : 'class')
   const [answer, setAnswer] = useState('')
   const [sent, setSent] = useState(false)
-  const [listening, setListening] = useState(false)
   useEffect(() => setTab(state.phase === 'after' ? 'review' : state.phase === 'before' ? 'preview' : 'class'), [state.phase])
-  useEffect(() => { if (state.questionRun?.status !== 'answering' || state.questionRun?.kind === 'discussion') setListening(false) }, [state.questionRun?.status, state.questionRun?.kind])
   const activity = state.activity === 'question' ? { title: '课堂提问', text: state.question } : state.activity === 'discussion' ? { title: '小组讨论', text: state.discussion } : { title: '课堂进行中，请看大屏', text: '请观看教师上传的课中资料' }
-  const toggleMic = () => {
-    const run = state.questionRun
-    if (!run || run.status !== 'answering' || run.kind === 'discussion') return
-    const active = !listening
-    setListening(active)
-    updateState(current => {
-      const currentRun = current.questionRun
-      if (currentRun?.id !== run.id) return current
-      const previous = currentRun.answers.find(x => x.id === student.id)
-      const response = { id: student.id, name: student.name, text: previous?.text || '雨水会沿着石灰岩的裂隙向下渗透……', active }
-      return { ...current, updatedAt: Date.now(), questionRun: { ...currentRun, answers: [...currentRun.answers.filter(x => x.id !== student.id), response] } }
-    })
-    if (active) setTimeout(() => updateState(current => {
-      const currentRun = current.questionRun
-      if (currentRun?.id !== run.id || currentRun.status !== 'answering') return current
-      return { ...current, updatedAt: Date.now(), questionRun: { ...currentRun, answers: currentRun.answers.map(x => x.id === student.id ? { ...x, text: '雨水吸收二氧化碳后形成碳酸，沿裂隙渗透并慢慢溶解石灰岩。' } : x) } }
-    }), 1300)
-  }
   return <div className="app-shell student-page"><Topbar title={`学生端 · ${student.name}`} onHome={onHome} actions={<><span className="student-tag">{student.id}</span><button className="avatar">{student.name.slice(-1)}</button></>} />
     <nav className="student-tabs">{[['preview','课前预习'],['class','课堂互动'],['review','课后复习']].map(([id, label]) => <button className={tab === id ? 'active' : ''} onClick={() => setTab(id)} key={id}>{label}</button>)}</nav>
     <div className="student-grid"><section className="activity-card"><div className="section-label">{tab === 'preview' ? '课前预习' : tab === 'review' ? '课后复习' : '课堂互动'}<span>{state.phase === 'class' ? '● 与教师端同步' : ''}</span></div>
       {tab === 'preview' && <LearningExercises key="preview" stage="preview" state={state} student={student} updateState={updateState} />}
-      {tab === 'class' && state.activity === 'discussion' && state.questionRun?.kind === 'discussion' ? <StudentDiscussion key={state.questionRun.id} run={state.questionRun} student={student} updateState={updateState} /> : tab === 'class' && state.activity === 'question' && state.questionRun ? <StudentQuestion run={state.questionRun} student={student} listening={listening} onMic={toggleMic} /> : tab === 'class' && <div className="task-content"><span className="pulse-ring" /><small>{activity.title}</small><h1>{activity.text}</h1><p>{state.activity === 'screen' ? '教师发起互动后，题目或小组任务会自动出现在这里' : '说出你的想法，学伴会帮你组织表达。'}</p>{state.activity !== 'screen' && <div className="answer-box"><textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="在这里写下你的答案…" /><button className="primary" onClick={() => answer.trim() && setSent(true)}>{sent ? '已提交 ✓' : '提交回答'}</button></div>}</div>}
+      {tab === 'class' && state.activity === 'discussion' && state.questionRun?.kind === 'discussion' ? <StudentDiscussion key={state.questionRun.id} run={state.questionRun} student={student} updateState={updateState} stateMinutes={state.discussionMinutes} /> : tab === 'class' && state.activity === 'question' && state.questionRun ? <StudentQuestion key={state.questionRun.id} run={state.questionRun} student={student} updateState={updateState} /> : tab === 'class' && <div className="task-content"><span className="pulse-ring" /><small>{activity.title}</small><h1>{activity.text}</h1><p>{state.activity === 'screen' ? '教师发起互动后，题目或小组任务会自动出现在这里' : '说出你的想法，学伴会帮你组织表达。'}</p>{state.activity !== 'screen' && <div className="answer-box"><textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="在这里写下你的答案…" /><button className="primary" onClick={() => answer.trim() && setSent(true)}>{sent ? '已提交 ✓' : '提交回答'}</button></div>}</div>}
       {tab === 'review' && <LearningExercises key="review" stage="review" state={state} student={student} updateState={updateState} />}
-    </section><StudyBuddy student={student} /></div>
+    </section><StudyBuddy student={student} stage={tab} state={state} updateState={updateState} /></div>
   </div>
 }
 
-function StudentDiscussion({ run, student, updateState }) {
+function StudentDiscussion({ run, student, updateState, stateMinutes }) {
   const group = run.groups.find(group => group.id === run.members[student.id])
   const isLeader = group?.leaderId === student.id
-  const [text, setText] = useState(() => run.answers.find(answer => answer.id === group?.id)?.text || '')
+  const [draftMinutes, setDraftMinutes] = useState(() => stateMinutes?.[`${run.id}:${group?.id}`]?.text || '')
+  const [stopped, setStopped] = useState(false)
+  const transcript = useRef('')
   const voiceBase = useRef('')
-  const voice = useVoiceCapture(transcript => setText(`${voiceBase.current}${transcript}`))
+  const voice = useVoiceCapture(text => { transcript.current = `${voiceBase.current}${text}` })
   const seconds = useCountdown(run.endAt || Date.now())
+  const stopRecording = () => {
+    voice.stop()
+    setDraftMinutes(formatDiscussionMinutes(run.question, group.number, transcript.current) || draftMinutes)
+    setStopped(true)
+  }
+  const startRecording = () => {
+    voiceBase.current = transcript.current ? `${transcript.current}\n` : ''
+    setStopped(false)
+    voice.start()
+  }
   useEffect(() => {
-    if (isLeader && ['selecting', 'answering'].includes(run.status)) { voiceBase.current = text ? `${text}\n` : ''; voice.start() }
+    if (isLeader && ['selecting', 'answering'].includes(run.status)) startRecording()
     return () => voice.stop()
   }, [group?.id, isLeader])
   useEffect(() => { if (!['selecting', 'answering'].includes(run.status)) voice.stop() }, [run.status])
   useEffect(() => {
-    if (isLeader && run.status === 'answering') updateState(current => setGroupAnswer(current, run.id, student.id, group.id, text, voice.active))
-  }, [run.status, group?.id, isLeader, text, voice.active])
+    if (voice.error && !voice.active && !voice.pending) setStopped(true)
+  }, [voice.error, voice.active, voice.pending])
+  useEffect(() => {
+    if (isLeader && run.status === 'answering') updateState(current => {
+      const submitted = current.questionRun?.answers.find(answer => answer.id === group.id)?.text || ''
+      return setGroupAnswer(current, run.id, student.id, group.id, submitted, voice.active)
+    })
+  }, [run.status, group?.id, isLeader, voice.active])
 
-  if (run.status === 'analyzing') return <div className="student-question-state"><span className="analysis-spinner" /><h1>小组回答分析中</h1><p>正在整理各组观点…</p></div>
-  if (run.status === 'result') return <div className="student-discussion"><h2>{run.question}</h2><DiscussionSummary run={run} /></div>
+  if (run.status === 'analyzing') return <div className="student-question-state"><span className="analysis-spinner" /><h1>小组回答分析中</h1><p>{group ? `正在整理${group.number}组的观点…` : '等待教师公布讨论结果。'}</p></div>
+  if (run.status === 'result') {
+    if (!group) return <div className="student-discussion"><h2>{run.question}</h2><p>本次讨论已结束，你未加入小组。</p></div>
+    const ownRun = { ...run, groups: [group], answers: run.answers.filter(answer => answer.id === group.id) }
+    return <div className="student-discussion"><div className="discussion-member-head"><strong>{group.number}组 · {group.name}</strong><span>小组长：{group.leaderName}</span></div><h2>{run.question}</h2><DiscussionSummary run={{ ...ownRun, summary: summarizeDiscussion(ownRun) }} /></div>
+  }
   if (!group) return <div className="student-discussion"><small>小组讨论 · 选择小组</small><h1>请选择你要进入的小组</h1><p>{run.question}</p><div className="group-selection">{run.groups.map(group => <button key={group.id} onClick={() => updateState(current => joinDiscussion(current, run.id, student.id, group.id))}><span className="group-number">{group.number}组</span><strong>{group.name}</strong><span>小组长：{group.leaderName}</span><small>{group.leaderId === student.id ? '我是小组长 · 进入后自动申请录音' : '以组员身份进入 · 麦克风禁音'}</small></button>)}</div>{!run.groups.length && <p>等待教师配置小组。</p>}</div>
   const response = run.answers.find(answer => answer.id === group.id)
+  const minutes = stateMinutes?.[`${run.id}:${group.id}`]
   return <div className="student-discussion">
     <div className="discussion-member-head"><strong>{group.number}组 · {group.name}</strong><span>小组长：{group.leaderName}</span><b>{isLeader ? '小组长' : '组员 · 禁音'}</b></div>
     <h2>{run.question}</h2><p>{run.status === 'selecting' ? '等待教师开始讨论；组长可先组织观点。' : `讨论进行中 · 剩余 ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`}</p>
     {isLeader ? <>
-      <button className={`student-mic ${voice.active ? 'listening' : ''}`} disabled={voice.pending} aria-label={voice.active ? '停止小组录音' : '开始小组录音'} onClick={() => { if (voice.active) voice.stop(); else { voiceBase.current = text ? `${text}\n` : ''; voice.start() } }}><Icon name={voice.active ? 'stop' : 'mic'} /></button>
-      <strong className="mic-label">{voice.pending ? '等待麦克风授权…' : voice.active ? '正在录音 · 仅组长发言' : '录音已停止 · 可点击重新开启'}</strong>
+      <button className={`student-mic ${voice.active ? 'listening' : ''}`} disabled={voice.pending} aria-label={voice.active ? '停止小组录音' : '开始小组录音'} onClick={voice.active ? stopRecording : startRecording}><Icon name={voice.active ? 'stop' : 'mic'} /></button>
+      <strong className="mic-label">{voice.pending ? '等待麦克风授权…' : voice.active ? '正在录音 · 停止后生成会议纪要' : '录音已停止 · 可点击重新开启'}</strong>
       {voice.error && <p className="voice-error" role="status">{voice.error}</p>}
-      <label className="discussion-label">本组回答 · 语音转写或文字补充<textarea value={text} onChange={event => { if (voice.active || voice.pending) voice.stop(); setText(event.target.value) }} placeholder="开始讨论后自动同步；手动修改会停止录音，以免转写覆盖文字" /></label>
+      {voice.active || voice.pending ? <p role="status">录音中，停止录音后显示可编辑的会议纪要。</p> : (stopped || draftMinutes) && <>
+        <label className="discussion-label">会议纪要<textarea value={draftMinutes} aria-label="会议纪要" onChange={event => setDraftMinutes(event.target.value)} placeholder="未获得语音转写，请补充会议纪要后提交" /></label>
+        <div className="discussion-actions"><button className="primary" disabled={!draftMinutes.trim() || run.status !== 'answering' || minutes?.text === draftMinutes.trim()} onClick={() => updateState(current => submitDiscussionMinutes(current, run.id, student.id, group.id, draftMinutes))}>{minutes?.text === draftMinutes.trim() ? '已提交 ✓' : '提交'}</button><p>{run.status === 'selecting' ? '教师开始讨论后可提交会议纪要。' : minutes?.text === draftMinutes.trim() ? '会议纪要已提交至教师 Agent。' : '确认或修改会议纪要后，点击提交发送给教师 Agent。'}</p></div>
+      </>}
       <p className="voice-privacy">录音文件仅保留本机；语音识别可能使用浏览器的在线服务。</p>
       {voice.audioUrl && <div className="recorded-audio"><audio controls src={voice.audioUrl} /><a href={voice.audioUrl} download={`小组${group.number}-讨论录音`}>下载本次录音（仅本机）</a></div>}
-    </> : <><div className="muted-notice"><Icon name="stop" /><strong>麦克风已禁用</strong><p>由小组长代表本组发言，你可以查看本组的实时回答。</p></div><div className="my-transcript"><small>本组实时回答</small><p>{response?.text || '等待小组长发言…'}</p></div></>}
+    </> : <><div className="muted-notice"><Icon name="stop" /><strong>麦克风已禁用</strong><p>由小组长录音并整理会议纪要，提交后可查看本组纪要。</p></div><div className="my-transcript"><small>本组会议纪要</small><p>{response?.text || '等待小组长提交会议纪要…'}</p></div></>}
+    {minutes && !isLeader && <div className="learning-feedback" role="status"><strong>会议纪要已提交至教师 Agent</strong></div>}
   </div>
 }
 
-function StudentQuestion({ run, student, listening, onMic }) {
+function StudentQuestion({ run, student, updateState }) {
+  const [text, setText] = useState(() => run.answers.find(answer => answer.id === student.id)?.text || '')
+  const voiceBase = useRef('')
+  const voice = useVoiceCapture(transcript => setText(`${voiceBase.current}${transcript}`))
   const seconds = useCountdown(run.endAt)
-  const response = run.answers.find(x => x.id === student.id)
+  useEffect(() => { if (run.status !== 'answering') voice.stop() }, [run.status])
+  useEffect(() => {
+    if (run.status === 'answering') updateState(current => setQuestionAnswer(current, run.id, student, text, voice.active))
+  }, [run.status, text, voice.active])
   if (run.status === 'analyzing') return <div className="student-question-state"><span className="analysis-spinner" /><h1>回答分析中</h1><p>学伴正在整理全班同学的回答…</p></div>
   if (run.status === 'result') return <div className="student-question-state"><span className="result-check"><Icon name="check" /></span><small>本次作答已完成</small><h1>谢谢你的回答</h1><p>老师正在带领大家查看共性问题与建议。</p></div>
-  return <div className="student-question-state"><div className="student-timer"><span>请作答</span><b>{seconds}</b><small>秒</small></div><h1>{run.question}</h1><p>点击麦克风后直接说出你的答案</p><button className={`student-mic ${listening ? 'listening' : ''}`} onClick={onMic} aria-label={listening ? '停止回答' : '开始回答'}><Icon name={listening ? 'stop' : 'mic'} /></button><strong className="mic-label">{listening ? '正在收音 · 点击停止' : response ? '继续回答' : '点击开始回答'}</strong>{response && <div className="my-transcript"><small>我的回答{listening && '· 实时转写中'}</small><p>{response.text}</p></div>}</div>
+  return <div className="student-question-state"><div className="student-timer"><span>请作答</span><b>{seconds}</b><small>秒</small></div><h1>{run.question}</h1><p>点击麦克风录音，转写内容自动同步给教师</p><button className={`student-mic ${voice.active ? 'listening' : ''}`} disabled={voice.pending} onClick={() => { if (voice.active) voice.stop(); else { voiceBase.current = text ? `${text}\n` : ''; voice.start() } }} aria-label={voice.active ? '停止回答' : '开始回答'}><Icon name={voice.active ? 'stop' : 'mic'} /></button><strong className="mic-label">{voice.pending ? '等待麦克风授权…' : voice.active ? '正在录音 · 点击停止' : '点击开始回答'}</strong>
+    {voice.error && <p className="voice-error" role="status">{voice.error}</p>}
+    <label className="discussion-label">我的回答<textarea value={text} readOnly={voice.active || voice.pending} onChange={event => setText(event.target.value)} placeholder="停止录音后可修改转写或输入文字，自动同步给教师" /></label>
+    {voice.audioUrl && <div className="recorded-audio"><audio controls src={voice.audioUrl} /><a href={voice.audioUrl} download="课堂回答录音">下载本次录音（仅本机）</a></div>}
+  </div>
 }
 
-function StudyBuddy({ student }) {
+function StudyBuddy({ student, stage, state, updateState }) {
+  const feedback = state?.learningFeedback?.[stage]?.[student.id]
+  useEffect(() => {
+    if (feedback && !feedback.reportedAt) updateState(current => reportLearningFeedback(current, stage, student.id, feedback.id))
+  }, [stage, student.id, feedback?.id, feedback?.reportedAt])
   const [input, setInput] = useState('')
   const [chat, setChat] = useState([{ from: 'bot', text: `${student.name}你好！关于“喀斯特地貌”，我会用提问帮你自己找到答案。` }])
   const send = text => { const value = (text || input).trim(); if (!value) return; setChat(c => [...c, { from: 'me', text: value }, { from: 'bot', text: '很好的思路！再想一步：水里的二氧化碳在其中起到了什么作用？' }]); setInput('') }
-  return <aside className="buddy-card"><div className="agent-head"><span className="agent-icon"><Icon name="robot" /></span><div><h2>AI 学伴</h2><p><i /> 启发式引导 · 不直接给答案</p></div></div><div className="messages">{chat.map((m, i) => <div className={`message ${m.from}`} key={i}><p>{m.text}</p></div>)}</div><div className="quick"><button onClick={() => send('为什么会形成溶洞？')}>为什么会形成溶洞？</button><button onClick={() => send('引导我分析这道题')}>引导我分析</button></div><div className="composer"><input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="说说你的想法…" /><button onClick={() => send()}><Icon name="send" /></button></div></aside>
+  return <aside className="buddy-card"><div className="agent-head"><span className="agent-icon"><Icon name="robot" /></span><div><h2>AI 学伴</h2><p><i /> 启发式引导 · 不直接给答案</p></div></div><div className="messages">{feedback && <div className="message bot learning-feedback" role="status"><small>习题分析与指导</small><p>{feedback.summary}</p>{feedback.items.map((item, index) => <p key={index}>{item.guidance}</p>)}<small>{feedback.reportedAt ? '分析结果已同步给教师 Agent' : '指导已生成，正在同步给教师 Agent…'}</small></div>}{chat.map((m, i) => <div className={`message ${m.from}`} key={i}><p>{m.text}</p></div>)}</div><div className="quick"><button onClick={() => send('为什么会形成溶洞？')}>为什么会形成溶洞？</button><button onClick={() => send('引导我分析这道题')}>引导我分析</button></div><div className="composer"><input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="说说你的想法…" /><button onClick={() => send()}><Icon name="send" /></button></div></aside>
 }
 
 function BigScreen({ onHome, state, updateState }) {
-  const material = state.materials?.find(material => material.id === state.materialId) || state.materials?.[0]
+  const material = state.materials?.find(material => material.id === state.materialId && (material.type === 'application/pdf' || /\.pdf$/i.test(material.name)))
   const stopQuestion = () => updateState(current => {
     const run = current.questionRun
     if (!run || run.status !== 'answering') return current
     return { ...current, updatedAt: Date.now(), questionRun: { ...run, status: 'analyzing', analyzeAt: Date.now() + 1800, answers: run.answers.map(x => ({ ...x, active: false })) } }
   })
-  return <main className="big-screen"><header><Brand compact /><div><i /> {state.phase === 'class' ? '课堂进行中' : state.phase === 'after' ? '课堂已结束' : '课前准备'}　<span>{material?.name}</span></div><button onClick={onHome}><Icon name="close" /></button></header>{['question', 'discussion'].includes(state.activity) && state.questionRun ? <ScreenQuestion run={state.questionRun} onStop={stopQuestion} /> : <section className="screen-presentation"><UploadedPresentation material={material} /></section>}</main>
+  return <main className="big-screen"><header><Brand compact /><div><i /> {state.phase === 'class' ? '课堂进行中' : state.phase === 'after' ? '课堂已结束' : '课前准备'}　<span>{material?.name}</span></div><button onClick={onHome}><Icon name="close" /></button></header>{['question', 'discussion'].includes(state.activity) && state.questionRun ? <ScreenQuestion run={state.questionRun} onStop={stopQuestion} /> : <section className="screen-presentation"><UploadedPresentation material={material} page={getMaterialPage(state, material?.id)} /></section>}</main>
 }
 
 function ScreenQuestion({ run, onStop }) {
@@ -493,6 +653,7 @@ function App() {
   const [view, setView] = useState(() => new URLSearchParams(location.search).get('view') || 'console')
   const [student, setStudent] = useState(null)
   const [students, setStudents] = useStoredState('wh-students', seedStudents)
+  useEffect(() => { setStudents(migrateStudents) }, [])
   const [state, setState] = useStoredState('wh-classroom', { phase: 'before', slide: 0, activity: 'screen', resourcesReady: false })
   const [messages, setMessages] = useStoredState('wh-messages', initialMessages)
   const channel = useMemo(() => 'BroadcastChannel' in window ? new BroadcastChannel('wh-classroom') : null, [])

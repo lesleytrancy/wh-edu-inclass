@@ -1,5 +1,19 @@
 import { useEffect, useState } from 'react'
 
+export function getMaterialPage(state, materialId) {
+  const page = state.materialPages?.[materialId]
+  return Number.isSafeInteger(page) && page > 0 ? page : 1
+}
+
+export function turnMaterialPage(state, materialId, direction, total = Infinity) {
+  const material = state.materials?.find(material => material.id === materialId)
+  if (!material || !(material.type === 'application/pdf' || /\.pdf$/i.test(material.name)) || ![-1, 1].includes(direction)) return state
+  const current = getMaterialPage(state, materialId)
+  const page = Math.max(1, Math.min(total, current + direction))
+  if (page === current || !Number.isSafeInteger(page)) return state
+  return { ...state, updatedAt: Date.now(), slide: page - 1, materialPages: { ...state.materialPages, [materialId]: page } }
+}
+
 function openMaterials() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('wh-materials', 1)
