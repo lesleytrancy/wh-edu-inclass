@@ -4,6 +4,6 @@ export function setQuestionAnswer(state, runId, student, text, active) {
   const previous = run.answers.find(answer => answer.id === student.id)
   if (previous?.text === text && previous.active === active) return state
   if (!previous && !text.trim() && !active) return state
-  const answer = { id: student.id, name: student.name, text, active }
+  const answer = { firstResponseAt: previous?.firstResponseAt || Date.now(), id: student.id, name: student.name, text, active }
   return { ...state, updatedAt: Date.now(), questionRun: { ...run, answers: [...run.answers.filter(answer => answer.id !== student.id), answer] } }
 }

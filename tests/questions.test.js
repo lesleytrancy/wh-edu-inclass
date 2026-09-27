@@ -18,3 +18,8 @@ for (const status of ['analyzing', 'result']) {
 }
 const discussion = { questionRun: { ...state.questionRun, kind: 'discussion' } }
 assert.equal(setQuestionAnswer(discussion, 10, student, '不能覆盖小组', true), discussion)
+
+const firstResponseAt = state.questionRun.answers[0].firstResponseAt
+assert.ok(Number.isFinite(firstResponseAt))
+const edited = setQuestionAnswer(state, 10, student, '再次订正', false)
+assert.equal(edited.questionRun.answers[0].firstResponseAt, firstResponseAt, '订正回答不得重置首次响应时间')

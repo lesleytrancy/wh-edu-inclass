@@ -23,6 +23,37 @@ function openMaterials() {
   })
 }
 
+async function uploadMaterial(material) {
+  const response = await fetch(`/api/classroom/materials/${material.id}`, { method: 'PUT', body: material.file })
+  if (!response.ok) throw new Error(`资料同步失败（${response.status}）`)
+}
+
+async function localMaterial(id) {
+  const db = await openMaterials()
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction('files').objectStore('files').get(id)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+  } finally { db.close() }
+}
+
+async function materialFile(material) {
+  const local = await localMaterial(material.id)
+  if (local?.file) return local.file
+  const response = await fetch(`/api/classroom/materials/${material.id}`)
+  if (!response.ok) throw new Error('资料尚未同步到服务器，请在上传资料的设备上刷新页面。')
+  return new File([await response.blob()], material.name, { type: material.type })
+}
+
+export async function syncLocalMaterials(materials) {
+  for (const material of materials) {
+    const local = await localMaterial(material.id)
+    if (local?.file) await uploadMaterial(local)
+  }
+}
+
 export async function saveMaterials(files) {
   const db = await openMaterials()
   const materials = Array.from(files, file => ({ id: crypto.randomUUID(), name: file.name, type: file.type, file }))
@@ -34,8 +65,13 @@ export async function saveMaterials(files) {
       transaction.onerror = () => reject(transaction.error)
       transaction.onabort = () => reject(transaction.error)
     })
+    await Promise.all(materials.map(uploadMaterial))
     return materials.map(({ file, ...metadata }) => metadata)
   } finally { db.close() }
+}
+
+export async function getMaterialFiles(materials) {
+  return Promise.all(materials.map(materialFile))
 }
 
 export function useMaterial(id) {
@@ -44,20 +80,12 @@ export function useMaterial(id) {
     if (!id) return
     let cancelled = false, url
     const load = async () => {
-      let db
       try {
-        db = await openMaterials()
-        const material = await new Promise((resolve, reject) => {
-          const request = db.transaction('files').objectStore('files').get(id)
-          request.onsuccess = () => resolve(request.result)
-          request.onerror = () => reject(request.error)
-        })
+        const material = await localMaterial(id)
         if (cancelled) return
-        if (!material) throw new Error('本机未找到原始文件，请重新上传资料。')
-        url = URL.createObjectURL(material.file)
+        url = material?.file ? URL.createObjectURL(material.file) : `/api/classroom/materials/${id}`
         setAsset({ id, url, error: '' })
       } catch (error) { if (!cancelled) setAsset({ id, url: null, error: error.message || '资料读取失败，请重新上传。' }) }
-      finally { db?.close() }
     }
     load()
     return () => { cancelled = true; if (url) URL.revokeObjectURL(url) }

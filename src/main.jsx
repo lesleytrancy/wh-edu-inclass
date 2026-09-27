@@ -6,19 +6,18 @@ import { seedStudents, migrateStudents } from './students.js'
 import { createDiscussion, defaultDiscussionQuestion, joinDiscussion, startDiscussion, setGroupAnswer, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from './discussion.js'
 import { setQuestionAnswer } from './questions.js'
 import { useVoiceCapture } from './useVoiceCapture.js'
-import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, reportLearningFeedback, publishLearningPack } from './learning.js'
-import { saveMaterials, useMaterial, getMaterialPage, turnMaterialPage } from './materials.js'
+import { simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback, publishLearningPack } from './learning.js'
+import { saveMaterials, getMaterialFiles, syncLocalMaterials, useMaterial, getMaterialPage, turnMaterialPage } from './materials.js'
+import { analyzeClassroomAnswers, askAgent, generateLearningPack, generateSnapshotQuestion, analyzeLearningAnswers } from './ai.js'
+import ClassroomReport, { AILoading } from './ClassroomReport.jsx'
+import { generateTeacherInsight, regenerateContent, resetDemoClassroom } from './ai.js'
+import { clearDemoBrowserData } from './reset-demo.js'
+import { captureStageSnapshot } from './snapshot.js'
 
 const geographyTools = Object.entries(import.meta.glob('../tools/*.html', { query: '?raw', import: 'default' })).map(([path, load]) => ({ name: path.split('/').pop().replace(/\.html$/i, ''), load })).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
 
 const initialMessages = [
-  { from: 'agent', text: '你好，我是课堂助教。请先上传教师课件，系统将模拟生成课前预习、课后复习及习题。', time: '09:28' },
-]
-
-const slideQuestions = [
-  '雨水是怎样一步步塑造喀斯特地貌的？',
-  '二氧化碳在石灰岩溶蚀过程中起了什么作用？',
-  '钟乳石为什么会从洞顶向下生长？',
+  { from: 'agent', text: '你好，我是课堂助教。请先上传教师课件，我会基于资料生成课前预习、课后复习及习题。', time: '09:28' },
 ]
 
 const icons = {
@@ -59,7 +58,15 @@ function Brand({ compact = false }) {
   </div>
 }
 
-function Console({ onEnter }) {
+function Console({ onEnter, onReset }) {
+  const [resetting, setResetting] = useState(false)
+  const [resetError, setResetError] = useState('')
+  const reset = async () => {
+    if (resetting) return
+    setResetting(true); setResetError('')
+    try { await onReset() }
+    catch (error) { setResetError(error.message || '重置失败，请重试。'); setResetting(false) }
+  }
   return <main className="console-page">
     <div className="ambient one" /><div className="ambient two" />
     <section className="console-wrap">
@@ -67,13 +74,15 @@ function Console({ onEnter }) {
       <div className="version-pill">V2.0 · 三端联动控制台</div>
       <h1>武侯课教智慧课堂</h1>
       <p className="lead">连接教师、学生与教室大屏，让 AI 参与课堂的每个关键节点。</p>
-      <div className="connection"><span />课堂同步通道已就绪 <small>BroadcastChannel · 演示教室</small></div>
+      <div className="connection"><span />课堂同步通道已就绪 <small>本机与局域网 · 演示教室</small></div>
       <div className="portal-grid">
         <Portal icon="book" title="教师端" text="课件控制、发起答题、小组讨论、白板与 AI 助教" action="进入教师教学工作台" onClick={() => onEnter('teacher')} />
         <Portal icon="cap" title="学生端" text="接收课件提示、答题、讨论任务与查看学习记录" action="打开学生端" tone="blue" onClick={() => onEnter('student')} />
         <Portal icon="screen" title="教室大屏" text="同步课件、互动数据、小组讨论进度和课堂结论" action="打开大屏" tone="mint" onClick={() => onEnter('screen')} />
       </div>
       <p className="tip">提示：在不同标签页打开三个端，即可体验课堂状态实时同步</p>
+      <button type="button" className="console-reset" disabled={resetting} onClick={reset}>{resetting ? '正在重置…' : '一键重置演示状态'}</button>
+      {resetError && <p role="alert" className="voice-error">{resetError}</p>}
     </section>
   </main>
 }
@@ -85,25 +94,31 @@ function Portal({ icon, title, text, action, tone = '', onClick }) {
   </button>
 }
 
-function Topbar({ title, onHome, actions }) {
-  return <header className="topbar"><button className="brand-button" onClick={onHome}><Brand compact /></button><span className="crumb">/ {title}</span><div className="top-actions">{actions}</div></header>
+function Topbar({ title, onHome, actions, collapsible = false }) {
+  const [collapsed, setCollapsed] = useState(false)
+  if (collapsible && collapsed) return <button type="button" className="topbar-reopen" aria-label="展开头部工具栏" aria-expanded="false" onClick={() => setCollapsed(false)}><Icon name="down" /> 展开头部工具栏</button>
+  return <header className="topbar"><button className="brand-button" onClick={onHome}><Brand compact /></button><span className="crumb">/ {title}</span><div className="top-actions">{actions}</div>{collapsible && <button type="button" className="topbar-toggle" aria-label="收起头部工具栏" aria-expanded="true" onClick={() => setCollapsed(true)}><Icon name="back" /><span>收起头部工具栏</span></button>}</header>
 }
 
 function Modal({ title, children, onClose }) {
   return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}><section className="modal"><div className="modal-head"><h2>{title}</h2><button className="circle-button" onClick={onClose}><Icon name="close" /></button></div>{children}</section></div>
 }
 
-function Teacher({ onHome, state, updateState, students, setStudents, messages, setMessages }) {
+function Teacher({ onHome, state, updateState, students, setStudents, messages, setMessages, messagesClearedAt, setMessagesClearedAt }) {
   const [panel, setPanel] = useState(null)
   const [teacherPage, setTeacherPage] = useState('materials')
   const [questionVisible, setQuestionVisible] = useState(true)
   const [agentCollapsed, setAgentCollapsed] = useState(false)
   const [input, setInput] = useState('')
+  const [agentBusy, setAgentBusy] = useState(false)
   const [drawMode, setDrawMode] = useState(null)
   const [dragTarget, setDragTarget] = useState(false)
   const [draggingQuestion, setDraggingQuestion] = useState(false)
   const [snapshotting, setSnapshotting] = useState(false)
+  const [snapshotError, setSnapshotError] = useState('')
   const [selectedTool, setSelectedTool] = useState(null)
+  const [toolGeneratorOpen, setToolGeneratorOpen] = useState(false)
+  const [generatedTools, setGeneratedTools] = useStoredState('wh-generated-geography-tools', [])
   const pptCanvasRef = useRef(null)
   const boardCanvasRef = useRef(null)
   const pageAnnotations = useRef(new Map())
@@ -126,33 +141,39 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
   }, [material?.id, materialPage])
   useEffect(() => {
     const run = state.questionRun
-    if (run?.kind === 'discussion' && run.status === 'result') setMessages(messages => messages.some(message => message.discussionRunId === run.id) ? messages : [...messages, { from: 'agent', discussionRunId: run.id, text: `小组讨论已结束。${(run.summary || summarizeDiscussion(run)).title}，各组回答与讨论总结已展示。`, time: '刚刚' }])
-  }, [state.questionRun?.id, state.questionRun?.status])
+    if (run?.kind === 'discussion' && run.status === 'result' && (run.finishedAt || 0) > messagesClearedAt) setMessages(messages => messages.some(message => message.discussionRunId === run.id) ? messages : [...messages, { from: 'agent', discussionRunId: run.id, text: `小组讨论已结束。${(run.summary || summarizeDiscussion(run)).title}，各组回答与讨论总结已展示。`, time: '刚刚' }])
+  }, [state.questionRun?.id, state.questionRun?.status, messagesClearedAt])
 
+  const insightInput = JSON.stringify({ feedback: state.learningFeedback, utterances: state.studentUtterances, run: state.questionRun, minutes: state.discussionMinutes })
   useEffect(() => {
-    const reports = Object.values(state.learningFeedback || {}).flatMap(stage => Object.values(stage)).filter(feedback => feedback.reportedAt)
-    if (!reports.length) return
-    setMessages(current => {
-      const additions = reports.filter(feedback => !current.some(message => message.learningFeedbackId === `${feedback.stage}:${feedback.studentId}:${feedback.id}`)).map(feedback => ({
-        from: 'agent', learningFeedbackId: `${feedback.stage}:${feedback.studentId}:${feedback.id}`,
-        text: `收到 AI 学伴分析 · ${students.find(student => student.id === feedback.studentId)?.name || feedback.studentId}\n${feedback.summary}\n${feedback.items.map(item => `${item.question} 回答：${item.response}。${item.guidance}`).join('\n')}`,
-        time: new Date(feedback.reportedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-      }))
-      return additions.length ? [...current, ...additions] : current
-    })
-  }, [state.learningFeedback, students])
+    const context = JSON.parse(insightInput)
+    const feedback = Object.values(context.feedback || {}).flatMap(stage => Object.values(stage)).filter(item => item.reportedAt > messagesClearedAt)
+    const utterances = (context.utterances || []).filter(item => item.at > messagesClearedAt)
+    const answers = (context.run?.answers || []).filter(item => item.text?.trim())
+    if (!feedback.length && !utterances.length && !answers.length && !Object.keys(context.minutes || {}).length) return
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      try {
+        const result = await generateTeacherInsight({ feedback: feedback.map(item => ({ studentId: item.studentId, items: item.items })), utterances, question: context.run?.question, answers, minutes: context.minutes })
+        if (!cancelled) setMessages(current => [...current.filter(item => !item.teacherInsight), { from: 'agent', teacherInsight: true, text: `AI 学伴分析\n${result.conclusion}\n教学建议：\n${result.suggestions.join('\n')}`, time: '刚刚' }])
+      } catch (error) {
+        if (!cancelled) setMessages(current => [...current.filter(item => !item.teacherInsight), { from: 'agent', teacherInsight: true, text: error.message, time: '刚刚' }])
+      }
+    }, 1500)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [insightInput, messagesClearedAt])
 
   useEffect(() => {
     const minutes = Object.values(state.discussionMinutes || {})
     if (!minutes.length) return
     setMessages(current => {
-      const additions = minutes.filter(item => !current.some(message => message.discussionMinutesId === `${item.runId}:${item.groupId}:${item.id}`)).map(item => ({
+      const additions = minutes.filter(item => item.submittedAt > messagesClearedAt && !current.some(message => message.discussionMinutesId === `${item.runId}:${item.groupId}:${item.id}`)).map(item => ({
         from: 'agent', discussionMinutesId: `${item.runId}:${item.groupId}:${item.id}`, text: `收到小组会议纪要\n${item.text}`,
         time: new Date(item.submittedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
       }))
       return additions.length ? [...current, ...additions] : current
     })
-  }, [state.discussionMinutes])
+  }, [state.discussionMinutes, messagesClearedAt])
 
   const broadcast = (patch, agentText) => {
     const next = { ...state, ...patch, updatedAt: Date.now() }
@@ -164,16 +185,24 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
     setPanel(null)
     setSelectedTool(null)
     setTeacherPage('classroom')
-    broadcast({ phase: 'class', activity: 'screen', questionRun: null, ...(state.phase === 'after' ? { slide: 0 } : {}) }, '课程已开始。全班预习完成率 100%，重点关注“碳酸溶蚀”的理解。')
+    broadcast({ classStartedAt: state.phase === 'class' ? state.classStartedAt : Date.now(), classEndedAt: null, ...(state.phase === 'after' ? { questionHistory: [], activityHistory: [], studentUtterances: [], discussionMinutes: {} } : {}), phase: 'class', activity: 'screen', questionRun: null, ...(state.phase === 'after' ? { slide: 0 } : {}) }, '课程已开始。全班预习完成率 100%，重点关注“碳酸溶蚀”的理解。')
   }
   const endClass = () => {
-    setPanel(null)
-    broadcast({ phase: 'after', activity: 'review', questionRun: null }, '课堂已结束，课堂总结报告已自动生成。')
+    setPanel('report')
+    broadcast({ classEndedAt: Date.now(), phase: 'after', activity: 'review', questionRun: null }, '课堂已结束，正在生成课堂诊断报告。')
   }
-  const send = () => {
-    if (!input.trim()) return
-    setMessages(m => [...m, { from: 'me', text: input.trim(), time: '刚刚' }, { from: 'agent', text: '已收到，我会结合当前课堂进度为你整理建议。', time: '刚刚' }])
+  const send = async () => {
+    const message = input.trim()
+    if (!message || agentBusy) return
+    setMessages(m => [...m, { from: 'me', text: message, time: '刚刚' }])
     setInput('')
+    setAgentBusy(true)
+    try {
+      const result = await askAgent({ message, role: 'teacher' })
+      setMessages(m => [...m, { from: 'agent', text: result.answer, sourceRefs: result.sourceRefs, time: '刚刚' }])
+    } catch {
+      setMessages(m => [...m, { from: 'agent', text: 'AI 服务暂不可用，请重试。', time: '刚刚' }])
+    } finally { setAgentBusy(false) }
   }
 
   const beginDraw = e => {
@@ -190,8 +219,9 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
     ctx.lineTo((e.clientX - rect.left) * c.width / rect.width, (e.clientY - rect.top) * c.height / rect.height); ctx.stroke()
   }
 
-  const startQuestion = (source, question = slideQuestions[(state.slide || 0) % slideQuestions.length]) => {
-    const id = Date.now(), run = { id, source, question, status: 'answering', startedAt: id, endAt: id + 15000, answers: [] }
+  const startQuestion = (source, question) => {
+    if (!question?.trim()) return
+    const id = Date.now(), run = { id, source, question, status: 'answering', startedAt: id, endAt: id + 5 * 60 * 1000, answers: [] }
     setPanel(null)
     setQuestionVisible(true)
     broadcast({ activity: 'question', question, questionRun: run }, source === 'snapshot' ? '已截取黑板内容并自动生成问题，学生开始作答。' : '已识别老师的语音提问，学生开始作答。')
@@ -199,14 +229,24 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
   }
   const stopQuestion = () => updateState(current => {
     const run = current.questionRun
-    if (!run || run.status !== 'answering') return current
-    return { ...current, updatedAt: Date.now(), questionRun: { ...run, status: 'analyzing', analyzeAt: Date.now() + 1800, answers: run.answers.map(x => ({ ...x, active: false })) } }
+    if (!run || !['answering', 'result'].includes(run.status)) return current
+    return { ...current, updatedAt: Date.now(), questionRun: { ...run, status: 'analyzing', analysisError: null, answers: run.answers.map(x => ({ ...x, active: false })) } }
   })
-  const dropQuestion = e => {
+  const dropQuestion = async e => {
     e.preventDefault(); setDragTarget(false); setDraggingQuestion(false)
     if (e.dataTransfer.getData('text/plain') !== 'question') return
-    setSnapshotting(true)
-    setTimeout(() => { setSnapshotting(false); startQuestion('snapshot') }, 650)
+    setSnapshotting(true); setSnapshotError('')
+    try {
+      const stage = e.currentTarget
+      const overlay = drawMode === 'board' ? boardCanvasRef.current : pptCanvasRef.current
+      const imageData = captureStageSnapshot(stage, overlay)
+      const result = await generateSnapshotQuestion({ imageData, materialName: material?.name || '课堂白板', page: materialPage })
+      startQuestion('snapshot', result.question)
+    } catch (error) {
+      const message = error.message || '快照解析失败，请重试。'
+      setSnapshotError(message)
+      setMessages(current => [...current, { from: 'agent', text: message, time: '刚刚' }])
+    } finally { setSnapshotting(false) }
   }
   const prepareDiscussion = () => {
     setPanel(null)
@@ -220,11 +260,11 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
   })
 
   return <div className="app-shell teacher-page">
-    <Topbar title={teacherPage === 'class' ? '班级管理' : '教师教学工作台'} onHome={onHome} actions={<>
+    <Topbar collapsible title={teacherPage === 'class' ? '班级管理' : '教师教学工作台'} onHome={onHome} actions={<>
       <button className="ghost teacher-nav" onClick={() => { setSelectedTool(null); setTeacherPage(state.phase === 'class' ? 'classroom' : 'materials') }}><Icon name="book" /> 教学工作台</button>
       <button className="ghost teacher-nav" onClick={() => setTeacherPage('class')}><Icon name="users" /> 班级管理</button>
       <button className="ghost teacher-nav" onClick={() => setTeacherPage('materials')}><Icon name="folder" /> 资料管理</button>
-      <GeographyToolMenu onSelect={tool => { setTeacherPage('classroom'); setSelectedTool(tool) }} />
+      <GeographyToolMenu generatedNames={generatedTools} onGenerate={() => setToolGeneratorOpen(true)} onSelect={tool => { setTeacherPage('classroom'); setSelectedTool(tool) }} />
       {state.phase !== 'class' ? <button className="primary" disabled={!material} onClick={startClass}>开始上课</button> : <><span className="live"><i />授课中</span><button className="danger" onClick={endClass}>结束上课</button></>}
       <button className="avatar">范</button>
     </>} />
@@ -241,6 +281,7 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
           <button className={`annotation-toggle ${drawMode === 'ppt' ? 'selected' : ''}`} title={drawMode === 'ppt' ? '关闭批注' : 'PPT 批注'} aria-label={drawMode === 'ppt' ? '关闭批注' : 'PPT 批注'} onClick={() => setDrawMode(mode => mode === 'ppt' ? null : 'ppt')}><Icon name={drawMode === 'ppt' ? 'close' : 'pen'} /></button>
           {dragTarget && <div className="drop-hint"><Icon name="camera" /><b>松开截取黑板</b><span>AI 将根据快照自动生成问题</span></div>}
           {snapshotting && <div className="snapshot-flash"><Icon name="camera" /> 已截取黑板，正在生成问题…</div>}
+          {snapshotError && !snapshotting && <div className="snapshot-error" role="alert">{snapshotError}<button onClick={() => setSnapshotError('')}>关闭</button></div>}
           {teacherPage === 'classroom' && ['question', 'discussion'].includes(state.activity) && state.questionRun && questionVisible && panel !== 'question' && (state.questionRun.status === 'selecting' ? <DiscussionSetup run={state.questionRun} onEdit={editDiscussion} onStart={() => updateState(current => startDiscussion(current, state.questionRun.id))} onClose={() => setQuestionVisible(false)} /> : <TeacherQuestion run={state.questionRun} onStop={stopQuestion} onClose={() => setQuestionVisible(false)} />)}
           {panel === 'question' && <QuestionRecorder onClose={() => setPanel(null)} onSubmit={question => startQuestion('voice', question)} />}
           {selectedTool && <GeographyTools key={selectedTool.name} selected={selectedTool} />}
@@ -249,10 +290,11 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
           {['question', 'discussion'].includes(state.activity) && state.questionRun && !questionVisible && <button onClick={() => setQuestionVisible(true)}><Icon name="chat" />{state.activity === 'discussion' ? '查看讨论' : '查看提问'}</button>}
         </StageControls>
       </section>
-      <Agent messages={messages} input={input} setInput={setInput} send={send} onReport={() => setPanel('report')} collapsed={agentCollapsed} onToggle={() => setAgentCollapsed(value => !value)} />
+      <Agent messages={messages} input={input} setInput={setInput} send={send} onClear={() => { setMessagesClearedAt(Date.now()); setMessages([]) }} onReport={() => setPanel('report')} collapsed={agentCollapsed} onToggle={() => setAgentCollapsed(value => !value)} />
     </div>
     {teacherPage === 'class' && <ClassManager students={students} setStudents={setStudents} />}
     {['materials', 'preview', 'discussion', 'review'].includes(teacherPage) && <MaterialWorkspace state={state} students={students} updateState={updateState} view={teacherPage} onView={view => { setPanel(null); setTeacherPage(view) }} />}
+    {toolGeneratorOpen && <GeographyToolGenerator onClose={() => setToolGeneratorOpen(false)} onGenerated={name => setGeneratedTools(current => [...new Set([...current, name])])} />}
     {panel === 'report' && <Report state={state} messages={messages} onClose={() => setPanel(null)} />}
   </div>
 }
@@ -265,11 +307,29 @@ function StageControls({ hideAsk = false, usingTool, phase, onAsk, onDiscussion,
   </div>
 }
 
-function GeographyToolMenu({ onSelect, tools = geographyTools }) {
+function GeographyToolMenu({ onSelect, onGenerate, generatedNames = [], tools = geographyTools }) {
+  const visibleTools = tools.filter(tool => tool.name !== '喀斯特地貌' || generatedNames.includes(tool.name))
   return <details className="geography-tool-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus() } }}>
     <summary className="ghost teacher-nav"><Icon name="folder" /> 地理工具集 <Icon name="down" /></summary>
-    <div className="geography-tool-options">{tools.map(tool => <button key={tool.name} onClick={event => { event.currentTarget.closest('details').open = false; onSelect(tool) }}>{tool.name}</button>)}{!tools.length && <p>暂无 H5 工具</p>}</div>
+    <div className="geography-tool-options"><button className="geography-generate" onClick={event => { event.currentTarget.closest('details').open = false; onGenerate() }}><Icon name="spark" /> 智能生成</button>{visibleTools.map(tool => <button key={tool.name} onClick={event => { event.currentTarget.closest('details').open = false; onSelect(tool) }}>{tool.name}</button>)}{!visibleTools.length && <p>暂无 H5 工具</p>}</div>
   </details>
+}
+
+function GeographyToolGenerator({ onClose, onGenerated }) {
+  const [requirement, setRequirement] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const timer = useRef(null)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const submit = event => {
+    event.preventDefault()
+    const request = requirement.trim()
+    if (!request || loading) return
+    if (!/喀斯特|karst/i.test(request)) { setError('当前演示支持“喀斯特地貌”工具，请输入相关需求。'); return }
+    setError(''); setLoading(true)
+    timer.current = setTimeout(() => { onGenerated('喀斯特地貌'); setLoading(false); onClose() }, 1200)
+  }
+  return <Modal title="智能生成地理工具" onClose={onClose}><form className="geography-generator" onSubmit={submit}><p>描述需要的工具，生成后会加入地理工具集。</p><label htmlFor="geography-tool-request">工具需求</label><textarea id="geography-tool-request" value={requirement} disabled={loading} onChange={event => { setRequirement(event.target.value); setError('') }} placeholder="例如：喀斯特地貌" rows={4} />{error && <p role="alert" className="voice-error">{error}</p>}{loading && <div role="status" className="geography-generating"><span className="analysis-spinner" /> 正在生成喀斯特地貌工具…</div>}<button className="primary" disabled={loading || !requirement.trim()}>{loading ? '生成中…' : '生成工具'}</button></form></Modal>
 }
 
 function GeographyTools({ selected }) {
@@ -291,7 +351,8 @@ function TeacherQuestion({ run, onStop, onClose }) {
   const isDiscussion = run.kind === 'discussion'
   const source = isDiscussion ? '资源预生成 · 小组讨论' : run.source === 'snapshot' ? 'AI 快照生成' : '教师录音提问'
   return <section className={`teacher-question ${run.status === 'result' ? 'result' : ''}`}><header><small>{source} · {run.status === 'result' ? isDiscussion ? '讨论总结' : '分析结果' : isDiscussion ? '小组回答' : '课堂提问'}</small><b>{run.status === 'answering' ? `${seconds}s` : run.status === 'analyzing' ? '分析中' : '已完成'}</b><button className="circle-button" aria-label={isDiscussion ? '关闭讨论展示' : '关闭提问展示'} onClick={onClose}><Icon name="close" /></button></header><h2>{run.question}</h2>
-    {run.status === 'analyzing' ? <div className="teacher-analyzing"><span className="analysis-spinner" /><p>正在分析 {run.answers.filter(answer => answer.text.trim()).length} {isDiscussion ? '个小组' : '位学生'}的回答…</p></div> : run.status === 'result' ? isDiscussion ? <DiscussionSummary run={run} /> : <><div className="teacher-result-score"><strong>82%</strong><span>核心要点命中率</span></div><dl><div><dt>共性问题</dt><dd>对二氧化碳形成碳酸的中间过程描述不完整。</dd></div><div><dt>知识延展</dt><dd>强化“吸收 CO₂ → 形成碳酸 → 溶解碳酸钙”三步链路。</dd></div></dl></> : <><div className="teacher-answer-list">{isDiscussion ? run.groups.map(group => { const answer = run.answers.find(answer => answer.id === group.id); return <p key={group.id}><strong>{group.number}组 · {group.name}</strong><small>小组长：{group.leaderName}{answer?.active && ' · 正在录音'}</small><span>{answer?.text || '等待回答…'}</span></p> }) : run.answers.length ? run.answers.map(answer => <p key={answer.id}><strong>{answer.name}{answer.active && ' · 实时回答'}</strong><span>{answer.text}</span></p>) : <p className="empty">等待学生回答…</p>}</div><button onClick={onStop}><Icon name="stop" /> {isDiscussion ? '结束讨论并总结' : '停止作答并分析'}</button></>}
+    {run.status === 'analyzing' ? <div className="teacher-analyzing"><span className="analysis-spinner" /><p>正在分析 {run.answers.filter(answer => answer.text.trim()).length} {isDiscussion ? '个小组' : '位学生'}的回答…</p></div> : run.status === 'result' ? isDiscussion ? <DiscussionSummary run={run} /> : <QuestionAnalysis run={run} /> : <><div className="teacher-answer-list">{isDiscussion ? run.groups.map(group => { const answer = run.answers.find(answer => answer.id === group.id); return <p key={group.id}><strong>{group.number}组 · {group.name}</strong><small>小组长：{group.leaderName}{answer?.active && ' · 正在录音'}</small><span>{answer?.text || '等待回答…'}</span></p> }) : run.answers.length ? run.answers.map(answer => <p key={answer.id}><strong>{answer.name}{answer.active && ' · 实时回答'}</strong><span>{answer.text}</span></p>) : <p className="empty">等待学生回答…</p>}</div><button onClick={onStop}><Icon name="stop" /> {isDiscussion ? '结束讨论并总结' : '停止作答并分析'}</button></>}
+    {run.status === 'result' && !run.analysis && <button onClick={onStop}>重新分析回答</button>}
   </section>
 }
 
@@ -310,13 +371,18 @@ function DiscussionSetup({ run, onEdit, onStart, onClose }) {
     {voice.error && <p role="status" className="voice-error">{voice.error}</p>}
     <div className="group-preview">{run.groups.map(group => <p key={group.id}><strong>{group.number}组 · {group.name}</strong><span>小组长：{group.leaderName}</span><small>已进入 {Object.values(run.members).filter(id => id === group.id).length} 人</small></p>)}</div>
     {!run.groups.length && <p>班级暂无学生，请先添加学生。</p>}
-    <button className="primary" disabled={!run.question.trim() || !run.groups.length || voice.pending} onClick={() => { voice.stop(); onStart() }}>开始讨论 · 5 分钟</button>
+    <button className="primary" disabled={!run.question.trim() || !run.groups.length || voice.pending} onClick={() => { voice.stop(); onStart() }}>开始讨论 · 20 分钟</button>
   </section>
+}
+
+function QuestionAnalysis({ run }) {
+  const result = run.analysis
+  return <div className="question-analysis">{result ? <><h3>总体结论</h3><p>{result.summary}</p><dl><div><dt>共性问题</dt><dd>{result.commonIssue}</dd></div><div><dt>教学建议</dt><dd>{result.extension}</dd></div></dl></> : <p>{run.analysisError || '此记录尚无 AI 分析，请发起新的课堂提问。'}</p>}</div>
 }
 
 function DiscussionSummary({ run }) {
   const summary = run.summary || summarizeDiscussion(run)
-  return <div className="discussion-summary"><h3>讨论总结 · 演示整理</h3><p><strong>{summary.title}</strong></p><p>{summary.text}</p><dl>{summary.groups.map(group => <div key={group.id}><dt>{group.number}组 · {group.name}　小组长：{group.leaderName}</dt><dd>{group.answer}</dd></div>)}</dl></div>
+  return <div className="discussion-summary"><h3>讨论总结</h3>{run.analysis && <QuestionAnalysis run={run} />}{run.analysisError && <p role="alert">{run.analysisError}</p>}<p><strong>{summary.title}</strong></p><p>{summary.text}</p><dl>{summary.groups.map(group => <div key={group.id}><dt>{group.number}组 · {group.name}　小组长：{group.leaderName}</dt><dd>{group.answer}</dd></div>)}</dl></div>
 }
 
 function QuestionRecorder({ onClose, onSubmit }) {
@@ -337,11 +403,11 @@ function QuestionRecorder({ onClose, onSubmit }) {
     <button className="primary wide" disabled={voice.pending || !text.trim()} onClick={() => { voice.stop(); onSubmit(text.trim()) }}><Icon name={voice.active ? 'stop' : 'send'} />{voice.active ? '结束录音并发起提问' : '发起提问'}</button></div></section>
 }
 
-function Agent({ messages, input, setInput, send, onReport, collapsed, onToggle }) {
+function Agent({ messages, input, setInput, send, onClear, onReport, collapsed, onToggle }) {
   if (collapsed) return <aside className="agent-rail"><button onClick={onToggle} aria-label="展开课堂助教"><Icon name="back" /><Icon name="robot" /><span>课堂助教 Agent</span></button></aside>
-  return <aside className="agent-card"><div className="agent-head"><span className="agent-icon"><Icon name="robot" /></span><div><h2>课堂助教 Agent</h2><p><i /> 在线 · 正在跟随课堂</p></div><button className="circle-button agent-toggle" aria-label="收起课堂助教" onClick={onToggle}><Icon name="next" /></button></div>
+  return <aside className="agent-card"><div className="agent-head"><span className="agent-icon"><Icon name="robot" /></span><div><h2>课堂助教 Agent</h2><p><i /> 在线 · 正在跟随课堂</p></div><button className="ghost agent-clear" disabled={!messages.length} onClick={onClear}>清空</button><button className="circle-button agent-toggle" aria-label="收起课堂助教" onClick={onToggle}><Icon name="next" /></button></div>
     <div className="agent-summary"><Icon name="spark" /> 当前课堂参与度 <strong>92%</strong></div>
-    <div className="messages">{messages.map((m, i) => <div key={i} className={`message ${m.from}`}><p>{m.text}</p><small>{m.time}</small></div>)}</div>
+    <div className="messages">{messages.map((m, i) => <div key={i} className={`message ${m.from}`}><p>{m.text}</p>{m.sourceRefs?.length > 0 && <small>依据：{m.sourceRefs.map(ref => ref.name).join('、')}</small>}<small>{m.time}</small></div>)}</div>
     <div className="quick"><button onClick={onReport}>生成课堂报告</button><button onClick={() => setInput('总结学生动态')}>总结学生动态</button></div>
     <div className="composer"><input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="询问课堂或学生学习动态…" /><button onClick={send}><Icon name="send" /></button></div>
   </aside>
@@ -349,27 +415,70 @@ function Agent({ messages, input, setInput, send, onReport, collapsed, onToggle 
 
 function ClassManager({ students, setStudents }) {
   const [editing, setEditing] = useState(null)
+  const [calling, setCalling] = useState(false)
+  const [highlightedId, setHighlightedId] = useState(null)
+  const lastId = useRef(null)
+  useEffect(() => {
+    if (!calling || !students.length) return
+    const timer = setInterval(() => {
+      const candidates = students.filter(student => student.id !== lastId.current)
+      const pool = candidates.length ? candidates : students
+      const id = pool[Math.floor(Math.random() * pool.length)].id
+      lastId.current = id
+      setHighlightedId(id)
+    }, 100)
+    return () => clearInterval(timer)
+  }, [calling, students])
+  const toggleCalling = () => {
+    if (!students.length) return
+    if (calling) { setCalling(false); return }
+    setEditing(null)
+    const id = students[Math.floor(Math.random() * students.length)].id
+    lastId.current = id; setHighlightedId(id); setCalling(true)
+  }
   const nextId = String(Math.max(8000, ...students.map(s => Number(s.id))) + 1).padStart(5, '0')
   const save = e => {
     e.preventDefault(); const name = new FormData(e.currentTarget).get('name').trim(); if (!name) return
     setStudents(s => editing?.id ? s.map(x => x.id === editing.id ? { ...x, name } : x) : [...s, { id: nextId, name, score: 0, status: '待完成预习' }]); setEditing(null)
   }
-  return <main className="management-page"><section className="management-card"><h1>班级管理</h1><p className="modal-sub">六年级三班 · {students.length} 名学生</p><div className="student-cards">{students.map(s => <button key={s.id} onClick={() => setEditing(s)}><span>{s.name.slice(-1)}</span><strong>{s.name}</strong><small>学号 {s.id}{s.group && ` · ${s.group}组`}</small><em>{s.status}</em></button>)}<button className="add-student" onClick={() => setEditing({})}><Icon name="plus" /><strong>添加学生</strong><small>学号自动生成</small></button></div>
-    {editing && <form className="inline-form" onSubmit={save}><label>学生姓名<input name="name" defaultValue={editing.name} autoFocus placeholder="请输入姓名" /></label><label>学号<input value={editing.id || nextId} disabled /></label><button className="primary">保存</button>{editing.id && <button type="button" className="danger-text" onClick={() => { setStudents(s => s.filter(x => x.id !== editing.id)); setEditing(null) }}>删除学生</button>}</form>}
-  </section></main>
+  return <main className="management-page"><section className="management-card"><h1>班级管理</h1><p className="modal-sub">六年级三班 · {students.length} 名学生</p><div className="student-cards">{students.map(s => <button key={s.id} className={highlightedId === s.id ? 'rollcall-highlight' : ''} onClick={() => { setCalling(false); setEditing(s) }}><span>{s.name.slice(-1)}</span><strong>{s.name}</strong><small>学号 {s.id}{s.group && ` · ${s.group}组`}</small><em>{s.status}</em></button>)}<button className="add-student" onClick={() => { setCalling(false); setEditing({}) }}><Icon name="plus" /><strong>添加学生</strong><small>学号自动生成</small></button></div>
+    {editing && <form className="inline-form" onSubmit={save}><label>学生姓名<input name="name" defaultValue={editing.name} autoFocus placeholder="请输入姓名" /></label><label>学号<input value={editing.id || nextId} disabled /></label><button className="primary">保存</button>{editing.id && <button type="button" className="danger-text" onClick={() => { setStudents(s => s.filter(x => x.id !== editing.id)); setEditing(null); if (highlightedId === editing.id) setHighlightedId(null) }}>删除学生</button>}</form>}
+  </section><button type="button" className={`rollcall-button ${calling ? 'rolling' : ''}`} disabled={!students.length} onClick={toggleCalling}><Icon name="users" />{calling ? '停止点名' : '点名回答'}</button></main>
 }
 
 function MaterialWorkspace({ state, students, updateState, view = 'materials', onView }) {
   const [uploading, setUploading] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState('')
   const materials = state.materials || []
   const selected = state.analysisMaterialIds || []
   const packSent = !!state.publishedLearningPack && JSON.stringify(state.learningPack) === JSON.stringify(state.publishedLearningPack)
   const isPdf = material => material.type === 'application/pdf' || /\.pdf$/i.test(material.name)
-  const parse = current => {
-    if (!current.analysisMaterialIds?.length) return current
-    const pack = createLearningPack()
-    return { ...current, updatedAt: Date.now(), resourcesReady: true, learningPack: pack, learningAnswers: simulateLearningAnswers(pack, students, current.learningAnswers), discussionQuestion: defaultDiscussionQuestion, parsedMaterialIds: current.analysisMaterialIds }
+  const parse = async () => {
+    if (!selected.length || analyzing) return
+    setAnalyzing(true); setError('')
+    let pack, discussionQuestion, sourceRefs = [], fallback = false
+    try {
+      const files = await getMaterialFiles(materials.filter(material => selected.includes(material.id)))
+      const result = await generateLearningPack(files)
+      if (!result?.preview?.exercises?.length || !result?.review?.exercises?.length) throw new Error('AI 返回的学习包格式不完整')
+      pack = { preview: result.preview, review: result.review }
+      discussionQuestion = result.discussionQuestion || defaultDiscussionQuestion
+      sourceRefs = result.sourceRefs || []
+      fallback = !!result.fallback
+    } catch (reason) {
+      setError(reason.message || 'AI 服务暂不可用，请重试。'); setAnalyzing(false); return
+    }
+    updateState(current => ({ ...current, updatedAt: Date.now(), resourcesReady: true, learningPack: pack, learningAnswers: simulateLearningAnswers(pack, students, current.learningAnswers), discussionQuestion, sourceRefs, aiFallback: fallback, parsedMaterialIds: selected }))
+    setAnalyzing(false); onView('preview')
+  }
+  const regenerate = async () => {
+    if (analyzing) return
+    setAnalyzing(true); setError('')
+    try {
+      const result = await regenerateContent(view, view === 'discussion' ? { discussionQuestion: state.discussionQuestion } : state.learningPack[view], (state.sourceRefs || []).map(ref => ref.resourceId).filter(Boolean))
+      updateState(current => ({ ...current, updatedAt: Date.now(), ...(view === 'discussion' ? { discussionQuestion: result.discussionQuestion } : { learningPack: { ...current.learningPack, [view]: result } }) }))
+    } catch (reason) { setError(reason.message) } finally { setAnalyzing(false) }
   }
   const upload = async event => {
     const input = event.currentTarget, files = Array.from(input.files)
@@ -384,7 +493,7 @@ function MaterialWorkspace({ state, students, updateState, view = 'materials', o
   const toggle = id => updateState(current => ({ ...current, updatedAt: Date.now(), analysisMaterialIds: current.analysisMaterialIds?.includes(id) ? current.analysisMaterialIds.filter(item => item !== id) : [...(current.analysisMaterialIds || []), id] }))
   return <main className="material-workspace"><section className="material-library">
     <small className="workspace-eyebrow">课程文件夹</small><h1>准备今天的课堂</h1><p className="modal-sub">上传资料后，选择用于 AI 解析的文件。PDF 可设为课中展示课件。</p>
-    <label className={`upload-button ${uploading ? 'disabled' : ''}`}><Icon name="upload" />{uploading ? '正在上传…' : '上传资料到课程文件夹'}<input type="file" multiple disabled={uploading} accept=".ppt,.pptx,.pdf,.doc,.docx,.txt,.md,image/*" onChange={upload} /></label>
+    <div className="resource-actions"><label className={`upload-button ${uploading ? 'disabled' : ''}`}><Icon name="upload" />{uploading ? '正在上传…' : '上传资料到课程文件夹'}<input type="file" multiple disabled={uploading} accept=".ppt,.pptx,.pdf,.doc,.docx,.txt,.md,image/*" onChange={upload} /></label><a className="primary resource-link" href="https://feed-studio.stringx.top/admin/projects">资源生成</a></div>
     {error && <p className="voice-error" role="alert">{error}</p>}
     <div className="course-files">{materials.map(material => <article key={material.id} className={selected.includes(material.id) ? 'selected' : ''}>
       <label className="analysis-check"><input type="checkbox" checked={selected.includes(material.id)} onChange={() => toggle(material.id)} /><span className="file-icon"><Icon name="folder" /></span><span><strong>{material.name}</strong><small>教师上传 · 点击选择用于解析</small></span></label>
@@ -393,11 +502,11 @@ function MaterialWorkspace({ state, students, updateState, view = 'materials', o
     {!materials.length && <div className="upload-empty"><Icon name="upload" /><h2>课程文件夹为空</h2><p>支持 PDF、Word、PPT、文本和图片资料。</p></div>}
   </section><section className="material-editor">
     <nav className="material-tabs">{[['preview', '课前预习'], ['discussion', '课中讨论'], ['review', '课后复习']].map(([key, label]) => <button key={key} className={view === key ? 'active' : ''} disabled={!state.learningPack} onClick={() => onView(key)}>{label}</button>)}<div className="material-tab-actions"><button className={`publish-pack ${packSent ? 'sent' : ''}`} disabled={!state.learningPack || packSent} onClick={() => updateState(current => publishLearningPack(current))}><Icon name={packSent ? 'check' : 'send'} />{packSent ? '已发送' : '发送学生端'}</button><button className="class-preview" disabled={!state.learningPack} onClick={() => onView('classroom')}><Icon name="screen" />课中预览</button></div></nav>
-    {!state.learningPack || view === 'materials' ? <div className="analysis-start"><Icon name="spark" /><h2>选择资料后生成教学内容</h2><p>将生成课前预习资料与测验、课中小组讨论题、课后复习资料与测验。</p><button className="primary" disabled={!selected.length || uploading} onClick={() => { updateState(current => parse(current)); onView('preview') }}><Icon name="spark" /> AI 解析所选资料{selected.length ? `（${selected.length}）` : ''}</button></div> : view === 'discussion' ? <DiscussionContentEditor question={state.discussionQuestion} onSave={question => updateState(current => ({ ...current, discussionQuestion: question, updatedAt: Date.now() }))} /> : <LearningContentEditor key={view} stage={view} content={state.learningPack[view]} onSave={content => updateState(current => ({ ...current, learningPack: { ...current.learningPack, [view]: content }, updatedAt: Date.now() }))} />}
+    {analyzing ? <AILoading /> : !state.learningPack || view === 'materials' ? <div className="analysis-start"><Icon name="spark" /><h2>选择资料后生成教学内容</h2><p>将生成课前预习资料与测验、课中小组讨论题、课后复习资料与测验。</p><button className="primary" disabled={!selected.length || uploading || analyzing} onClick={parse}><Icon name="spark" /> {analyzing ? 'AI 正在解析资料…' : `AI 解析所选资料${selected.length ? `（${selected.length}）` : ''}`}</button></div> : view === 'discussion' ? <DiscussionContentEditor onRegenerate={regenerate} question={state.discussionQuestion} onSave={question => updateState(current => ({ ...current, discussionQuestion: question, updatedAt: Date.now() }))} /> : <LearningContentEditor onRegenerate={regenerate} key={view} stage={view} content={state.learningPack[view]} onSave={content => updateState(current => ({ ...current, learningPack: { ...current.learningPack, [view]: content }, updatedAt: Date.now() }))} />}
   </section></main>
 }
 
-function LearningContentEditor({ stage, content, onSave }) {
+function LearningContentEditor({ stage, content, onSave, onRegenerate }) {
   const [draft, setDraft] = useState(content), [saved, setSaved] = useState(false)
   useEffect(() => {
     const incoming = JSON.stringify(content)
@@ -410,7 +519,7 @@ function LearningContentEditor({ stage, content, onSave }) {
     setDraft(current => ({ ...current, exercises: [...current.exercises, { id: `${stage}-${Date.now()}`, question: '', options: ['', '', ''], answer: '' }] }))
   }
   return <form className="content-editor" onSubmit={event => { event.preventDefault(); onSave(draft); setSaved(true) }}>
-    <header><div><small>{stage === 'preview' ? '课前学习材料' : '课后巩固材料'}</small><h2>{draft.title}资料 + 测验</h2></div><div className="editor-actions"><button className="primary">{saved ? '已保存 ✓' : '保存修改'}</button></div></header>
+    <header><div><small>{stage === 'preview' ? '课前学习材料' : '课后巩固材料'}</small><h2>{draft.title}资料 + 测验</h2></div><div className="editor-actions"><button className="primary">{saved ? '已保存 ✓' : '保存修改'}</button><button type="button" className="ghost" onClick={onRegenerate}>重新生成</button></div></header>
     <label>资料标题<input required value={draft.title} onChange={event => { setSaved(false); setDraft(current => ({ ...current, title: event.target.value })) }} /></label>
     <label>学习任务<textarea required value={draft.task} onChange={event => { setSaved(false); setDraft(current => ({ ...current, task: event.target.value })) }} /></label>
     <div className="exercise-heading"><h3>测验题目</h3><button type="button" className="ghost add-exercise" onClick={addExercise}><Icon name="plus" /> 新增题目</button></div>
@@ -422,10 +531,10 @@ function LearningContentEditor({ stage, content, onSave }) {
   </form>
 }
 
-function DiscussionContentEditor({ question, onSave }) {
+function DiscussionContentEditor({ question, onSave, onRegenerate }) {
   const [draft, setDraft] = useState(question), [saved, setSaved] = useState(false)
   useEffect(() => { setDraft(question); setSaved(false) }, [question])
-  return <form className="content-editor discussion-content-editor" onSubmit={event => { event.preventDefault(); onSave(draft.trim()); setSaved(true) }}><header><div><small>课中互动</small><h2>小组讨论题目</h2></div><button className="primary" disabled={!draft.trim()}>{saved ? '已保存 ✓' : '保存修改'}</button></header><label>讨论问题<textarea value={draft} onChange={event => { setDraft(event.target.value); setSaved(false) }} /></label><p>开始小组讨论时将使用这里保存的问题，教师仍可在课堂中再次调整。</p></form>
+  return <form className="content-editor discussion-content-editor" onSubmit={event => { event.preventDefault(); onSave(draft.trim()); setSaved(true) }}><header><div><small>课中互动</small><h2>小组讨论题目</h2></div><div className="editor-actions"><button className="primary" disabled={!draft.trim()}>{saved ? '已保存 ✓' : '保存修改'}</button><button type="button" className="ghost" onClick={onRegenerate}>重新生成</button></div></header><label>讨论问题<textarea value={draft} onChange={event => { setDraft(event.target.value); setSaved(false) }} /></label><p>开始小组讨论时将使用这里保存的问题，教师仍可在课堂中再次调整。</p></form>
 }
 
 function UploadedPresentation({ material, page = 1, onTurn, showControls = true }) {
@@ -487,32 +596,37 @@ function CanvasPagination({ page, onTurn, total = Infinity, busy = false }) {
 
 function LearningOverview({ stage, state, students }) {
   const content = state.learningPack[stage]
-  return <section className="learning-overview"><div className="learning-content"><small>AI 模拟生成 · {content.title}</small><h2>{content.title}任务</h2><p>{content.task}</p><ol>{content.exercises.map(exercise => <li key={exercise.id}><strong>{exercise.question}</strong><p>{exercise.options.join(' / ')}</p><small>参考答案：{exercise.answer}</small></li>)}</ol></div><h2>每位学生的答题情况</h2><div className="learning-students">{students.map(student => {
-    const answers = state.learningAnswers?.[stage]?.[student.id] || {}
+  return <section className="learning-overview"><div className="learning-content"><small>AI 基于课程资料生成 · {content.title}</small><h2>{content.title}任务</h2><p>{content.task}</p><ol>{content.exercises.map(exercise => <li key={exercise.id}><strong>{exercise.question}</strong><p>{exercise.options.join(' / ')}</p><small>参考答案：{exercise.answer}</small></li>)}</ol></div><h2>每位学生的答题情况</h2><div className="learning-students">{students.map(student => {
+    const answers = Object.fromEntries(Object.entries(state.learningAnswers?.[stage]?.[student.id] || {}).filter(([, answer]) => !answer.simulated))
     const submitted = content.exercises.filter(exercise => answers[exercise.id])
     const correct = submitted.filter(exercise => answers[exercise.id].text === exercise.answer)
     const feedback = state.learningFeedback?.[stage]?.[student.id]
-    return <article key={student.id}><header><strong>{student.name}</strong><small>学号 {student.id}</small><b>{submitted.length ? `${submitted.length}/${content.exercises.length} 已答 · ${correct.length} 题正确` : '未提交'}</b></header>{content.exercises.map((exercise, index) => <p key={exercise.id}><span>第 {index + 1} 题</span><strong>{answers[exercise.id]?.text || '未作答'}</strong><em>{answers[exercise.id] ? answers[exercise.id].text === exercise.answer ? '正确' : '待订正' : '待完成'}</em></p>)}<small>{submitted.length ? submitted.some(exercise => answers[exercise.id].simulated) ? '模拟答题记录' : '学生实际提交' : '等待学生提交'}</small>{feedback?.reportedAt && <div className="learning-feedback"><strong>AI 学伴分析</strong><p>{feedback.summary}</p>{feedback.items.map((item, index) => <p key={index}>{item.guidance}</p>)}</div>}</article>
+    return <article key={student.id}><header><strong>{student.name}</strong><small>学号 {student.id}</small><b>{submitted.length ? `${submitted.length}/${content.exercises.length} 已答 · ${correct.length} 题正确` : '未提交'}</b></header>{content.exercises.map((exercise, index) => <p key={exercise.id}><span>第 {index + 1} 题</span><strong>{answers[exercise.id]?.text || '未作答'}</strong><em>{answers[exercise.id] ? answers[exercise.id].text === exercise.answer ? '正确' : '待订正' : '待完成'}</em></p>)}<small>{submitted.length ? '学生实际提交' : '等待学生提交'}</small>{feedback?.reportedAt && <div className="learning-feedback"><strong>AI 学伴分析</strong><p>教师侧总结与教学建议请查看右侧 AI 助教的「AI 学伴分析」。</p></div>}</article>
   })}</div>{!students.length && <p>班级暂无学生。</p>}</section>
 }
 
 function LearningExercises({ stage, state, student, updateState }) {
   const content = state.publishedLearningPack?.[stage]
-  const submitted = state.learningAnswers?.[stage]?.[student.id] || {}
+  const submitted = Object.fromEntries(Object.entries(state.learningAnswers?.[stage]?.[student.id] || {}).filter(([, answer]) => !answer.simulated))
   const [responses, setResponses] = useState(() => Object.fromEntries(Object.entries(submitted).map(([id, answer]) => [id, answer.text])))
   const [saved, setSaved] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analysisError, setAnalysisError] = useState('')
+  const submit = async event => {
+    event.preventDefault(); setSaved(true); setAnalyzing(true); setAnalysisError('')
+    updateState(current => submitLearningAnswers(current, stage, student.id, responses))
+    try {
+      const result = await analyzeLearningAnswers({ stage, studentId: student.id, content, responses })
+      updateState(current => saveLearningFeedback(current, stage, student.id, result))
+    } catch (error) { setAnalysisError(error.message || 'AI 习题分析暂不可用，请稍后重试。') }
+    finally { setAnalyzing(false) }
+  }
   if (!content) return <div className="task-content"><h1>等待教师发送学习资料</h1><p>教师发送后，{stage === 'preview' ? '课前预习' : '课后复习'}资料与测验会出现在这里。</p></div>
-  return <div className="learning-exercises"><small>AI 模拟生成 · {content.title}</small><h1>{content.title}</h1><p>{content.task}</p><form onSubmit={event => { event.preventDefault(); updateState(current => submitLearningAnswers(current, stage, student.id, responses)); setSaved(true) }}>{content.exercises.map((exercise, index) => <fieldset key={exercise.id}><legend>{index + 1}. {exercise.question}</legend>{exercise.options.map(option => <label key={option}><input type="radio" name={exercise.id} required value={option} checked={responses[exercise.id] === option} onChange={() => { setResponses(current => ({ ...current, [exercise.id]: option })); setSaved(false) }} />{option}</label>)}{submitted[exercise.id] && <small>上次回答：{submitted[exercise.id].text} · {submitted[exercise.id].text === exercise.answer ? '正确' : '待订正'}{submitted[exercise.id].simulated && '（模拟记录）'}</small>}</fieldset>)}<button className="primary" disabled={content.exercises.some(exercise => !responses[exercise.id])}>{saved ? '已提交 ✓' : '提交习题'}</button>{saved && <p role="status">已提交，AI 学伴的分析指导请查看右侧学伴窗口。</p>}</form></div>
+  return <div className="learning-exercises"><small>AI 基于课程资料生成 · {content.title}</small><h1>{content.title}</h1><p>{content.task}</p><form onSubmit={submit}>{content.exercises.map((exercise, index) => <fieldset key={exercise.id}><legend>{index + 1}. {exercise.question}</legend>{exercise.options.map(option => <label key={option}><input type="radio" name={exercise.id} required value={option} checked={responses[exercise.id] === option} onChange={() => { setResponses(current => ({ ...current, [exercise.id]: option })); setSaved(false) }} />{option}</label>)}{submitted[exercise.id] && <small>上次回答：{submitted[exercise.id].text} · {submitted[exercise.id].text === exercise.answer ? '正确' : '待订正'}</small>}</fieldset>)}<button className="primary" disabled={analyzing || content.exercises.some(exercise => !responses[exercise.id])}>{analyzing ? 'AI 正在分析…' : saved ? '重新提交' : '提交习题'}</button>{saved && !analyzing && !analysisError && <p role="status">真实作答已提交，AI 分析显示在右侧当前对话下方。</p>}{analysisError && <p className="voice-error" role="alert">作答已保存，但{analysisError}</p>}</form></div>
 }
 
-function Report({ state, messages, onClose }) {
-  return <Modal title="课堂总结报告" onClose={onClose}><div className="report" id="report"><Brand compact /><h1>《神奇的喀斯特地貌》课堂总结</h1><p>课程状态：{state.phase === 'after' ? '已结束' : '进行中'}　教师上传资料：{state.materials?.length || 0} 份</p>
-    <div className="report-stats"><div><b>92%</b><span>课堂参与度</span></div><div><b>88%</b><span>知识点掌握</span></div><div><b>3</b><span>学习建议</span></div></div>
-    <h3>课堂助教总结</h3><p>学生整体参与积极，能够描述雨水与石灰岩的作用过程。建议继续区分“溶蚀”与“沉积”两个阶段。</p>
-    <h3>学伴 Agent 总结</h3><p>结合课前预习与课后习题记录，关注学生对二氧化碳、碳酸钙及溶蚀、沉积过程的理解。</p>
-    <h3>教学建议</h3><ol className="teaching-suggestions"><li>用“吸收 CO₂ → 形成碳酸 → 溶解碳酸钙”三步链路强化溶蚀过程，并请学生复述。</li><li>结合溶洞、钟乳石图片，对比“溶蚀”与“沉积”的发生条件和地貌结果。</li><li>对中间过程表达不完整的学生安排针对性追问，课后用简短练习检查理解。</li></ol>
-    <h3>课堂记录</h3>{messages.slice(-4).map((m, i) => <p key={i}>• {m.text}</p>)}
-  </div><button className="primary wide no-print" onClick={() => window.print()}><Icon name="download" /> 下载 / 打印 PDF</button></Modal>
+function Report({ state, onClose }) {
+  return <Modal title="课堂总结报告" onClose={onClose}><ClassroomReport state={state} /></Modal>
 }
 
 function StudentLogin({ students, onLogin, onHome }) {
@@ -629,17 +743,29 @@ function StudyBuddy({ student, stage, state, updateState }) {
     if (feedback && !feedback.reportedAt) updateState(current => reportLearningFeedback(current, stage, student.id, feedback.id))
   }, [stage, student.id, feedback?.id, feedback?.reportedAt])
   const [input, setInput] = useState('')
+  const [busy, setBusy] = useState(false)
   const [chat, setChat] = useState([{ from: 'bot', text: `${student.name}你好！关于“喀斯特地貌”，我会用提问帮你自己找到答案。` }])
-  const send = text => { const value = (text || input).trim(); if (!value) return; setChat(c => [...c, { from: 'me', text: value }, { from: 'bot', text: '很好的思路！再想一步：水里的二氧化碳在其中起到了什么作用？' }]); setInput('') }
-  return <aside className="buddy-card"><div className="agent-head"><span className="agent-icon"><Icon name="robot" /></span><div><h2>AI 学伴</h2><p><i /> 启发式引导 · 不直接给答案</p></div></div><div className="messages">{feedback && <div className="message bot learning-feedback" role="status"><small>习题分析与指导</small><p>{feedback.summary}</p>{feedback.items.map((item, index) => <p key={index}>{item.guidance}</p>)}<small>{feedback.reportedAt ? '分析结果已同步给教师 Agent' : '指导已生成，正在同步给教师 Agent…'}</small></div>}{chat.map((m, i) => <div className={`message ${m.from}`} key={i}><p>{m.text}</p></div>)}</div><div className="quick"><button onClick={() => send('为什么会形成溶洞？')}>为什么会形成溶洞？</button><button onClick={() => send('引导我分析这道题')}>引导我分析</button></div><div className="composer"><input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="说说你的想法…" /><button onClick={() => send()}><Icon name="send" /></button></div></aside>
+  const send = async text => {
+    const value = (text || input).trim()
+    if (!value || busy) return
+    updateState(current => ({ ...current, studentUtterances: [...(current.studentUtterances || []), { studentId: student.id, name: student.name, stage, text: value, at: Date.now() }].slice(-300) }))
+    setChat(current => [...current, { from: 'me', text: value }]); setInput(''); setBusy(true)
+    try {
+      const result = await askAgent({ message: value, role: 'student', studentId: student.id, stage })
+      setChat(current => [...current, { from: 'bot', text: result.answer, sourceRefs: result.sourceRefs }])
+    } catch {
+      setChat(current => [...current, { from: 'bot', text: 'AI 服务暂不可用，请重试。' }])
+    } finally { setBusy(false) }
+  }
+  return <aside className="buddy-card"><div className="agent-head"><span className="agent-icon"><Icon name="robot" /></span><div><h2>AI 学伴</h2><p><i /> 启发式引导 · 不直接给答案</p></div></div><div className="messages">{chat.map((m, i) => <div className={`message ${m.from}`} key={i}><p>{m.text}</p>{m.sourceRefs?.length > 0 && <small>依据：{m.sourceRefs.map(ref => ref.name).join('、')}</small>}</div>)}{feedback && <div className="message bot" role="status"><small>习题分析与指导</small><p>{feedback.summary}\n{feedback.items.map((item, index) => `第 ${index + 1} 题（你的回答：${item.response}）：${item.guidance}`).join('\n')}</p>{feedback.sourceRefs?.length > 0 && <small>依据：{feedback.sourceRefs.map(ref => ref.name).join('、')}</small>}<small>{feedback.reportedAt ? '分析结果已同步给教师 Agent' : '指导已生成，正在同步给教师 Agent…'}</small></div>}</div><div className="quick"><button disabled={busy} onClick={() => send('为什么会形成溶洞？')}>为什么会形成溶洞？</button><button disabled={busy} onClick={() => send('引导我分析这道题')}>引导我分析</button></div><div className="composer"><input disabled={busy} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={busy ? '学伴正在思考…' : '说说你的想法…'} /><button disabled={busy} onClick={() => send()}><Icon name="send" /></button></div></aside>
 }
 
 function BigScreen({ onHome, state, updateState }) {
   const material = state.materials?.find(material => material.id === state.materialId && (material.type === 'application/pdf' || /\.pdf$/i.test(material.name)))
   const stopQuestion = () => updateState(current => {
     const run = current.questionRun
-    if (!run || run.status !== 'answering') return current
-    return { ...current, updatedAt: Date.now(), questionRun: { ...run, status: 'analyzing', analyzeAt: Date.now() + 1800, answers: run.answers.map(x => ({ ...x, active: false })) } }
+    if (!run || !['answering', 'result'].includes(run.status)) return current
+    return { ...current, updatedAt: Date.now(), questionRun: { ...run, status: 'analyzing', analysisError: null, answers: run.answers.map(x => ({ ...x, active: false })) } }
   })
   return <main className="big-screen"><header><Brand compact /><div><i /> {state.phase === 'class' ? '课堂进行中' : state.phase === 'after' ? '课堂已结束' : '课前准备'}　<span>{material?.name}</span></div><button onClick={onHome}><Icon name="close" /></button></header>{['question', 'discussion'].includes(state.activity) && state.questionRun ? <ScreenQuestion run={state.questionRun} onStop={stopQuestion} /> : <section className="screen-presentation"><UploadedPresentation material={material} page={getMaterialPage(state, material?.id)} /></section>}</main>
 }
@@ -647,8 +773,8 @@ function BigScreen({ onHome, state, updateState }) {
 function ScreenQuestion({ run, onStop }) {
   const seconds = useCountdown(run.endAt)
   if (run.kind === 'discussion') return <ScreenDiscussion run={run} onStop={onStop} />
-  if (run.status === 'analyzing') return <section className="screen-analysis"><div className="screen-glow" /><span className="analysis-spinner" /><small>AI 课堂助教</small><h1>回答分析中…</h1><p>正在汇总 {run.answers.length || 2} 位同学的表达和共性问题</p></section>
-  if (run.status === 'result') return <section className="screen-result"><div className="screen-glow" /><small>作答分析完成</small><h1>大家抓住了“水与岩石作用”的主线</h1><div className="result-layout"><div className="result-score"><b>82<small>%</small></b><span>核心要点命中率</span></div><div className="result-insights"><article><small>共性问题</small><p>多数同学能提到“雨水”和“石灰岩”，但对二氧化碳形成碳酸这一中间过程描述不完整。</p></article><article><small>教学建议</small><p>用“吸收 CO₂ → 形成碳酸 → 溶解碳酸钙”三步链路再做一次口头强化。</p></article></div></div></section>
+  if (run.status === 'analyzing') return <section className="screen-analysis"><div className="screen-glow" /><span className="analysis-spinner" /><small>AI 课堂助教</small><h1>回答分析中…</h1><p>正在汇总 {run.answers.filter(answer => answer.text.trim()).length} 位同学的表达和共性问题</p></section>
+  if (run.status === 'result') return <section className="screen-result"><div className="screen-glow" /><small>作答分析完成</small><h1>课堂回答分析</h1><QuestionAnalysis run={run} /></section>
   const activeAnswers = run.answers.filter(x => x.active)
   return <section className="screen-answering"><div className="screen-glow" /><div className="answering-head"><div><small>课堂提问</small><h1>请作答</h1></div><div className="screen-countdown"><b>{seconds}</b><span>秒</span></div><button onClick={onStop}><Icon name="stop" /> 停止作答</button></div><h2>{run.question}</h2><div className="live-answers">{activeAnswers.length ? activeAnswers.map(answer => <article key={answer.id}><div><span>{answer.name.slice(-1)}</span><p><b>{answer.name}</b><small><i /> 麦克风已开启 · 实时转写</small></p></div><blockquote>{answer.text}</blockquote><div className="mini-wave">{Array.from({ length: 9 }, (_, i) => <i key={i} />)}</div></article>) : <div className="waiting-answer"><Icon name="mic" /><p>等待同学开启麦克风…</p></div>}</div></section>
 }
@@ -666,33 +792,92 @@ function App() {
   const [students, setStudents] = useStoredState('wh-students', seedStudents)
   useEffect(() => { setStudents(migrateStudents) }, [])
   const [state, setState] = useStoredState('wh-classroom', { phase: 'before', slide: 0, activity: 'screen', resourcesReady: false })
+  const syncedMaterials = useRef(new Set())
+  useEffect(() => {
+    const pending = (state.materials || []).filter(material => !syncedMaterials.current.has(material.id))
+    if (!pending.length) return
+    syncLocalMaterials(pending).then(() => pending.forEach(material => syncedMaterials.current.add(material.id))).catch(console.error)
+  }, [state.materials])
   const [messages, setMessages] = useStoredState('wh-messages', initialMessages)
+  const [messagesClearedAt, setMessagesClearedAt] = useStoredState('wh-messages-cleared-at', 0)
   const channel = useMemo(() => 'BroadcastChannel' in window ? new BroadcastChannel('wh-classroom') : null, [])
+  const liveSocket = useRef(null)
+  const latestState = useRef(state)
+  latestState.current = state
   const updateState = next => setState(current => {
-    const value = typeof next === 'function' ? next(current) : next
-    if (value !== current) channel?.postMessage(value)
+    let value = typeof next === 'function' ? next(current) : next
+    if (value !== current) {
+      const history = [...(value.questionHistory || [])]
+      if (current.questionRun && current.questionRun !== value.questionRun && value.classStartedAt === current.classStartedAt) {
+        const index = history.findIndex(run => run.id === current.questionRun.id)
+        if (index < 0) history.push(current.questionRun)
+        else history[index] = current.questionRun
+      }
+      value = { ...value, questionHistory: history.slice(-100) }
+      if (current.activity !== value.activity || current.phase !== value.phase) value.activityHistory = [...(value.activityHistory || []), { activity: value.activity, phase: value.phase, at: Date.now() }].slice(-300)
+    }
+    if (value !== current) {
+      channel?.postMessage(value)
+      if (liveSocket.current?.readyState === WebSocket.OPEN) liveSocket.current.send(JSON.stringify({ type: 'state', state: value }))
+    }
     return value
   })
-  useEffect(() => { if (!channel) return; channel.onmessage = e => setState(e.data); return () => channel.close() }, [channel, setState])
+  useEffect(() => { if (!channel) return; channel.onmessage = e => { if (e.data?.type === 'demo.reset') { location.assign(location.pathname); return } setState(e.data) }; return () => channel.close() }, [channel, setState])
+  useEffect(() => {
+    let stopped = false
+    let retry
+    const connect = () => {
+      const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/classroom/live`)
+      liveSocket.current = socket
+      socket.onopen = () => socket.send(JSON.stringify({ type: 'init', role: view, state: latestState.current }))
+      socket.onmessage = event => {
+        const message = JSON.parse(event.data)
+        if (message.type !== 'state') return
+        latestState.current = message.state
+        setState(message.state)
+        channel?.postMessage(message.state)
+      }
+      socket.onclose = () => { if (!stopped) retry = setTimeout(connect, 1500) }
+    }
+    connect()
+    return () => { stopped = true; clearTimeout(retry); liveSocket.current?.close() }
+  }, [channel, setState, view])
   useEffect(() => {
     const run = state.questionRun
-    if (!run || !['answering', 'analyzing'].includes(run.status)) return
-    const due = run.status === 'answering' ? run.endAt : run.analyzeAt
+    if (!run || run.status !== 'answering') return
     const timer = setTimeout(() => updateState(current => {
       const active = current.questionRun
-      if (active?.id !== run.id || active.status !== run.status) return current
-      const questionRun = run.status === 'answering'
-        ? { ...active, status: 'analyzing', analyzeAt: Date.now() + 1800, answers: active.answers.map(x => ({ ...x, active: false })) }
-        : { ...active, status: 'result', finishedAt: Date.now(), ...(active.kind === 'discussion' ? { summary: summarizeDiscussion(active) } : {}) }
-      return { ...current, updatedAt: Date.now(), questionRun }
-    }), Math.max(0, due - Date.now()))
+      if (active?.id !== run.id || active.status !== 'answering') return current
+      return { ...current, updatedAt: Date.now(), questionRun: { ...active, status: 'analyzing', analysisError: null, answers: active.answers.map(answer => ({ ...answer, active: false })) } }
+    }), Math.max(0, run.endAt - Date.now()))
     return () => clearTimeout(timer)
-  }, [state.questionRun?.id, state.questionRun?.status, state.questionRun?.endAt, state.questionRun?.analyzeAt])
+  }, [state.questionRun?.id, state.questionRun?.status, state.questionRun?.endAt])
+  useEffect(() => {
+    const run = state.questionRun
+    if (view !== 'teacher' || run?.status !== 'analyzing') return
+    let cancelled = false
+    const finish = (analysis, analysisError = null) => {
+      if (cancelled) return
+      updateState(current => {
+        const active = current.questionRun
+        if (active?.id !== run.id || active.status !== 'analyzing') return current
+        return { ...current, updatedAt: Date.now(), questionRun: { ...active, status: 'result', finishedAt: Date.now(), analysis, analysisError, ...(active.kind === 'discussion' ? { summary: summarizeDiscussion(active) } : {}) } }
+      })
+    }
+    analyzeClassroomAnswers(run).then(result => finish(result)).catch(error => finish(null, error.message))
+    return () => { cancelled = true }
+  }, [view, state.questionRun?.id, state.questionRun?.status])
+  const resetDemo = async () => {
+    await resetDemoClassroom()
+    await clearDemoBrowserData()
+    channel?.postMessage({ type: 'demo.reset' })
+    location.assign(location.pathname)
+  }
   const navigate = next => { setView(next); const url = next === 'console' ? location.pathname : `${location.pathname}?view=${next}`; history.replaceState({}, '', url) }
-  if (view === 'teacher') return <Teacher onHome={() => navigate('console')} state={state} updateState={updateState} students={students} setStudents={setStudents} messages={messages} setMessages={setMessages} />
+  if (view === 'teacher') return <Teacher onHome={() => navigate('console')} state={state} updateState={updateState} students={students} setStudents={setStudents} messages={messages} setMessages={setMessages} messagesClearedAt={messagesClearedAt} setMessagesClearedAt={setMessagesClearedAt} />
   if (view === 'student') return student ? <Student student={student} onHome={() => navigate('console')} state={state} updateState={updateState} /> : <StudentLogin students={students} onLogin={setStudent} onHome={() => navigate('console')} />
   if (view === 'screen') return <BigScreen onHome={() => navigate('console')} state={state} updateState={updateState} />
-  return <Console onEnter={navigate} />
+  return <Console onEnter={navigate} onReset={resetDemo} />
 }
 
 createRoot(document.getElementById('root')).render(<App />)

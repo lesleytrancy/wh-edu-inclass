@@ -1,0 +1,8 @@
+.env
+.cert/
+.venv/
+data/
+dist/
+node_modules/
+.DS_Store
+__pycache__/

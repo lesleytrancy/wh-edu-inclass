@@ -6,7 +6,7 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { transformWithOxc } from 'vite'
 import { createDiscussion, joinDiscussion, startDiscussion, setGroupAnswer, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from '../src/discussion.js'
-import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, reportLearningFeedback } from '../src/learning.js'
+import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback } from '../src/learning.js'
 
 // Render actual JSX without booting the DOM or opening a browser.
 const require = createRequire(import.meta.url)
@@ -21,10 +21,10 @@ import React, { useEffect, useMemo, useRef, useState } from ${JSON.stringify(rea
 import { setQuestionAnswer } from ${JSON.stringify(new URL('../src/questions.js', import.meta.url).href)};
 import { useVoiceCapture } from ${JSON.stringify(new URL('../src/useVoiceCapture.js', import.meta.url).href)};
 import { createDiscussion, defaultDiscussionQuestion, joinDiscussion, startDiscussion, setGroupAnswer, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from ${JSON.stringify(new URL('../src/discussion.js', import.meta.url).href)};
-import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, reportLearningFeedback, publishLearningContent, publishLearningPack } from ${JSON.stringify(new URL('../src/learning.js', import.meta.url).href)};
+import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback, publishLearningContent, publishLearningPack } from ${JSON.stringify(new URL('../src/learning.js', import.meta.url).href)};
 import { saveMaterials, useMaterial, getMaterialPage, turnMaterialPage } from ${JSON.stringify(new URL('../src/materials.js', import.meta.url).href)};
 ${source}
-export { Teacher, Student, StageControls, GeographyTools, GeographyToolMenu, TeacherQuestion, DiscussionSetup, StudentDiscussion, ScreenDiscussion, MaterialWorkspace, LearningOverview, LearningExercises, UploadedPresentation, StudyBuddy, QuestionRecorder, StudentQuestion, CanvasPagination, BigScreen };`
+export { ClassManager, Teacher, Student, StageControls, GeographyTools, GeographyToolMenu, TeacherQuestion, DiscussionSetup, StudentDiscussion, ScreenDiscussion, MaterialWorkspace, LearningOverview, LearningExercises, UploadedPresentation, StudyBuddy, QuestionRecorder, StudentQuestion, CanvasPagination, BigScreen };`
 const { code } = await transformWithOxc(source, 'main.jsx', { jsx: { runtime: 'classic' } })
 const components = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 const students = [{ id: '1', name: '组长甲' }, { id: '2', name: '组长乙' }, { id: '3', name: '组员' }]
@@ -87,9 +87,8 @@ const readStudent = render('Student', { student: students[0], state: { ...prepar
 assert.doesNotMatch(readStudent, /<i><\/i><\/button><div class=\"notification-panel\"|<i><\/i><\/button><\/div>/)
 for (const stage of ['preview', 'review']) {
   const overview = render('LearningOverview', { stage, state: prepared, students })
-  assert.match(overview, /模拟答题记录/)
   assert.match(overview, /未提交/)
-  assert.match(overview, /待订正/)
+  assert.doesNotMatch(overview, /模拟答题记录/)
   assert.match(render('LearningExercises', { stage, state: prepared, student: students[2] }), /提交习题/)
 }
 const teacher = render('Teacher', { state: prepared, students, messages: [], setMessages() {} })
@@ -97,6 +96,8 @@ assert.doesNotMatch(teacher, /资源管理/)
 assert.match(teacher, /annotation-toggle/)
 assert.match(teacher, /aria-label="PPT 批注"/)
 assert.match(teacher, /地理工具集/)
+assert.match(render('ClassManager', { students, setStudents() {} }), /点名回答/)
+assert.match(teacher, /收起头部工具栏/)
 const tools = (await readdir(new URL('../tools/', import.meta.url))).filter(name => name.endsWith('.html')).map(name => ({ name: name.replace(/\.html$/, ''), load: async () => '' }))
 assert.match(teacher, /资料管理/)
 assert.match(teacher, /返回课中/)
@@ -105,7 +106,10 @@ assert.ok(teacher.indexOf('班级管理</button>') < teacher.indexOf('资料管�
 const toolList = render('GeographyToolMenu', { tools, onSelect() {} })
 assert.match(toolList, /<details/)
 assert.match(toolList, /<summary/)
-for (const tool of tools) assert.ok(toolList.includes(tool.name))
+assert.match(toolList, /智能生成/)
+assert.doesNotMatch(toolList, /<button[^>]*>喀斯特地貌<\/button>/)
+for (const tool of tools.filter(tool => tool.name !== '喀斯特地貌')) assert.ok(toolList.includes(tool.name))
+assert.match(render('GeographyToolMenu', { tools, generatedNames: ['喀斯特地貌'], onSelect() {}, onGenerate() {} }), /<button[^>]*>喀斯特地貌<\/button>/)
 const toolCanvas = render('GeographyTools', { selected: tools[0] })
 assert.match(toolCanvas, /地理工具 Canvas/)
 assert.doesNotMatch(toolCanvas, /<header|工具列表|geography-tool-options/)
@@ -130,11 +134,16 @@ for (const status of ['selecting', 'answering', 'analyzing', 'result']) {
   assert.doesNotMatch(html, /求知组|其他组独有回答|group-selection/)
   if (status === 'result') assert.match(html, /本组独有回答/)
 }
-let guidedState = submitLearningAnswers(prepared, 'review', '3', { r1: '溶蚀', r2: '溶蚀' })
+let guidedState = submitLearningAnswers(prepared, 'review', '3', { r1: '溶蚀', r2: '溶蚀', r3: '条件—过程—结果' })
+guidedState = saveLearningFeedback(guidedState, 'review', '3', { summary: '3 题中 2 题正确', items: [
+  { question: '钟乳石', response: '溶蚀', correct: false, guidance: '观察是否有新物质累积。' },
+  { question: '溶洞', response: '溶蚀', correct: true, guidance: '回答正确。' },
+  { question: '表达', response: '条件—过程—结果', correct: true, guidance: '回答正确。' },
+] })
 const feedback = guidedState.learningFeedback.review['3']
 const buddy = render('StudyBuddy', { state: guidedState, stage: 'review', student: students[2], updateState() {} })
 assert.match(buddy, /习题分析与指导/)
-assert.match(buddy, /2 题中 1 题正确/)
+assert.match(buddy, /3 题中 2 题正确/)
 assert.match(buddy, /新物质/)
 assert.doesNotMatch(render('LearningOverview', { stage: 'review', state: guidedState, students }), /AI 学伴分析/)
 guidedState = reportLearningFeedback(guidedState, 'review', '3', feedback.id)
@@ -185,3 +194,12 @@ assert.match(render('CanvasPagination', { page: 3, total: 3, onTurn() {} }), /di
 assert.equal((render('CanvasPagination', { page: 2, total: 3, busy: true, onTurn() {} }).match(/disabled=""/g) || []).length, 2)
 assert.doesNotMatch(render('StageControls', { phase: 'class', hideAsk: true }), /发起提问|拖拽快照/)
 assert.match(render('StageControls', { phase: 'class', hideAsk: false }), /发起提问/)
+
+const realAnalysis = { summary: '两位学生对沉积过程理解存在分歧', commonIssue: '第二条回答混淆溶蚀与沉积', extension: '用钟乳石生长过程追问' }
+const analyzedRun = { id: 900, status: 'result', question: '钟乳石如何形成？', answers: [], analysis: realAnalysis }
+const analyzedMarkup = render('TeacherQuestion', { run: analyzedRun })
+assert.match(analyzedMarkup, /两位学生对沉积过程理解存在分歧/)
+assert.match(analyzedMarkup, /第二条回答混淆溶蚀与沉积/)
+assert.doesNotMatch(analyzedMarkup, /82%|核心要点命中率/)
+assert.match(render('TeacherQuestion', { run: { ...analyzedRun, analysis: null, analysisError: '请求失败' } }), /重新分析回答/)
+assert.match(render('DiscussionSetup', { run: createDiscussion(students, '问题', 100) }), /20 分钟/)

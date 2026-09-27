@@ -65,6 +65,11 @@ input, textarea { accent-color: var(--positive); }
 .geography-tool-options > button:hover, .geography-tool-options > button:focus-visible { background: #F7F7F5; }
 .teacher-grid.agent-collapsed { grid-template-columns: minmax(0, 1fr) 48px; }
 .agent-toggle { margin-left: auto; flex-shrink: 0; width: 30px; height: 30px; }
+.agent-clear { margin-left: auto; min-height: 30px; padding: 0 10px; }
+.agent-clear + .agent-toggle { margin-left: 0; }
+.snapshot-error { position: absolute; z-index: 12; left: 50%; top: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; max-width: 80%; padding: 10px 14px; border-radius: 10px; color: #8b2638; background: #fff0f2; box-shadow: 0 5px 18px #211f3225; }
+.snapshot-error button { border: 0; background: transparent; color: inherit; font-weight: 700; }
+.buddy-card .message p { white-space: pre-line; }
 .agent-head > div { min-width: 0; }
 .agent-rail { border: 1px solid #F7F7F5; border-radius: 15px; background: white; }
 .agent-rail button { display: flex; flex-direction: column; align-items: center; gap: 15px; width: 100%; height: 100%; padding: 20px 8px; border: 0; border-radius: inherit; color: #202024; background: transparent; }
@@ -250,3 +255,40 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .discussion-content-editor > p { color: var(--muted); font-size: 12px; }
 @media (max-width: 850px) { .material-workspace { grid-template-columns: 1fr; }.material-library { border-right: 0; border-bottom: 1px solid var(--line); }.material-editor { min-height: 560px; }.option-inputs { grid-template-columns: 1fr; }.material-tabs { grid-template-columns: repeat(3, 1fr); }.material-tab-actions { grid-column: 1 / -1; justify-content: center; padding: 8px 12px 12px; } }
 .student-notifications { position: relative; }.notification-button { position: relative; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 1px solid #ffffff28; border-radius: 50%; color: white; background: transparent; }.notification-button > i { position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; border: 2px solid var(--sidebar); border-radius: 50%; background: #f14e67; }.notification-panel { position: absolute; z-index: 30; top: 48px; right: 0; width: min(340px, calc(100vw - 28px)); padding: 12px; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); background: white; box-shadow: 0 16px 42px #211f3230; }.notification-panel > strong { display: block; padding: 5px 7px 10px; }.notification-panel > button { display: block; width: 100%; padding: 11px 9px; border: 0; border-top: 1px solid var(--line); text-align: left; background: white; }.notification-panel b, .notification-panel small { display: block; }.notification-panel b { font-size: 12px; }.notification-panel small { margin-top: 5px; color: var(--muted); font-size: 10px; }.notification-panel p { margin: 8px; color: var(--muted); font-size: 12px; }
+
+.resource-actions, .editor-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.resource-link { display: inline-flex; align-items: center; text-decoration: none; white-space: nowrap; }
+.ai-loading { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px; }
+.ai-loading p { color: var(--muted); }
+.diagnostic-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.diagnostic-card { padding: 18px; border: 1px solid #e9e5f2; border-radius: 18px; margin: 12px 0; break-inside: avoid; }
+.report-chart { height: 260px; position: relative; }
+.diagnostic-report { line-height: 1.7; }
+.chart-values { font-size: 12px; color: var(--muted); }
+.modal:has(.diagnostic-report), .modal:has(.ai-loading) { width: min(1050px, 95vw); }
+@media (max-width: 700px) { .diagnostic-grid { grid-template-columns: 1fr; } }
+@media print { .diagnostic-report .editor-actions { display: none; } .report-chart { height: 230px; } }
+
+.topbar .topbar-toggle { min-height: 36px; display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; padding: 0 12px; border: 1px solid #ffffff30; border-radius: 999px; color: #fff; background: #ffffff12; font-size: 12px; white-space: nowrap; }
+.topbar-collapsed .topbar-toggle { margin-left: auto; }
+.topbar-collapsed { min-height: 56px; height: 56px; }
+.geography-tool-options .geography-generate { display: flex; align-items: center; gap: 7px; color: #493d81; font-weight: 700; border-bottom: 1px solid var(--line); }
+.geography-generator { display: grid; gap: 12px; margin-top: 18px; }
+.geography-generator p { margin: 0; color: var(--muted); font-size: 13px; }
+.geography-generator label { font-size: 13px; font-weight: 700; }
+.geography-generator textarea { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; resize: vertical; }
+.geography-generator .primary { justify-self: end; }
+.geography-generating { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.geography-generating .analysis-spinner { width: 22px; height: 22px; margin: 0; border-width: 3px; }
+@media (max-width: 900px) { .teacher-page .topbar .topbar-toggle { margin-left: auto; } }
+
+/* Collapsed teacher toolbar leaves the lesson canvas unobstructed. */
+.teacher-page:has(> .topbar-reopen) .teacher-grid { height: 100vh; }
+.teacher-page .topbar-reopen { position: fixed; top: 12px; right: 16px; z-index: 25; display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 14px; border: 1px solid #ffffff35; border-radius: 999px; color: white; background: var(--sidebar); box-shadow: 0 6px 18px #211f3233; font-size: 12px; }
+.console-reset { margin-top: 16px; padding: 10px 16px; border: 1px solid #ffffff55; border-radius: 999px; color: var(--sidebar); background: var(--accent); font-size: 12px; font-weight: 700; }
+.console-reset:hover { background: #d2c9ee; }
+.management-page .rollcall-button { position: fixed; right: 28px; bottom: 28px; z-index: 15; min-height: 54px; display: flex; align-items: center; gap: 8px; padding: 0 22px; border: 0; border-radius: 999px; color: white; background: var(--sidebar); box-shadow: 0 12px 30px #211f3244; font-size: 14px; font-weight: 700; }
+.management-page .rollcall-button.rolling { background: #715acc; }
+.student-cards > button.rollcall-highlight { border: 2px solid #715acc; background: #eee9ff; box-shadow: 0 0 0 5px #bcaaff55, 0 12px 25px #715acc33; transform: scale(1.035); transition: background .08s, transform .08s; }
+.student-cards > button.rollcall-highlight > span { color: white; background: #715acc; }
+@media (max-width: 900px) { .teacher-page:has(> .topbar-reopen) .teacher-grid { height: auto; min-height: 100vh; } .management-page .rollcall-button { right: 14px; bottom: 14px; } }

@@ -21,7 +21,7 @@ export function joinDiscussion(state, runId, studentId, groupId) {
 export function startDiscussion(state, runId, now = Date.now()) {
   const run = state.questionRun
   if (run?.id !== runId || run.kind !== 'discussion' || run.status !== 'selecting' || !run.question.trim() || !run.groups.length) return state
-  return { ...state, updatedAt: now, discussion: run.question.trim(), questionRun: { ...run, question: run.question.trim(), status: 'answering', startedAt: now, endAt: now + 300000 } }
+  return { ...state, updatedAt: now, discussion: run.question.trim(), questionRun: { ...run, question: run.question.trim(), status: 'answering', startedAt: now, endAt: now + 20 * 60 * 1000 } }
 }
 
 export function setGroupAnswer(state, runId, studentId, groupId, text, active) {
