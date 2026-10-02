@@ -235,6 +235,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .analysis-check strong { font-size: 12px; }.analysis-check small, .analysis-only { margin-top: 4px; color: var(--muted); font-size: 10px; }
 .material-select { flex: none; display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; }.material-select input { accent-color: #6ca93e; }
 .material-editor { display: flex; flex-direction: column; }
+.demo-content-note { margin: 12px 20px 0; padding: 10px 14px; border-radius: 9px; color: #805a22; background: #fff5db; font-size: 13px; line-height: 1.5; }
 .material-tabs { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)) auto; min-height: 70px; background: #f5f6f9; }
 .material-tabs button { border: 0; border-bottom: 3px solid transparent; background: transparent; color: #666b78; font-size: 16px; font-weight: 700; }
 .material-tabs button.active { border-color: #527cff; color: #3567ee; background: #fff; }.material-tabs button:disabled { opacity: .5; }

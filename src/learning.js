@@ -31,7 +31,7 @@ export function publishLearningPack(state) {
   const sentAt = Date.now()
   const copy = Object.fromEntries(['preview', 'review'].map(stage => [stage, { ...pack[stage], exercises: pack[stage].exercises.map(exercise => ({ ...exercise, options: [...exercise.options] })) }]))
   const notification = { id: `learning-pack-${sentAt}`, stage: 'preview', title: '课前预习与课后复习资料已发布', sentAt }
-  return { ...state, updatedAt: sentAt, publishedLearningPack: copy, learningNotifications: [notification, ...(state.learningNotifications || [])].slice(0, 20) }
+  return { ...state, updatedAt: sentAt, publishedLearningPack: copy, publishedLearningFallback: !!state.aiFallback, learningNotifications: [notification, ...(state.learningNotifications || [])].slice(0, 20) }
 }
 
 export function submitLearningAnswers(state, stage, studentId, responses) {

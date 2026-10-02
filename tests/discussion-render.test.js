@@ -77,6 +77,7 @@ assert.ok(previewEditor.indexOf('课后复习') < previewEditor.indexOf('发送�
 assert.ok(previewEditor.indexOf('发送学生端') < previewEditor.indexOf('课中预览'))
 const sentEditor = render('MaterialWorkspace', { state: { ...folderState, publishedLearningPack: learningPack }, students, view: 'preview' })
 assert.match(sentEditor, /已发送/)
+assert.match(render('MaterialWorkspace', { state: { ...folderState, aiFallback: true }, students, view: 'preview' }), /演示内容：AI 生成超时/)
 const discussionEditor = render('MaterialWorkspace', { state: { ...folderState, discussionQuestion: '可编辑讨论题' }, students, view: 'discussion' })
 assert.match(discussionEditor, /可编辑讨论题/)
 assert.match(discussionEditor, /保存修改/)
@@ -90,6 +91,7 @@ for (const stage of ['preview', 'review']) {
   assert.match(overview, /未提交/)
   assert.doesNotMatch(overview, /模拟答题记录/)
   assert.match(render('LearningExercises', { stage, state: prepared, student: students[2] }), /提交习题/)
+  assert.match(render('LearningExercises', { stage, state: { ...prepared, publishedLearningFallback: true }, student: students[2] }), /喀斯特地貌演示预设/)
 }
 const teacher = render('Teacher', { state: prepared, students, messages: [], setMessages() {} })
 assert.doesNotMatch(teacher, /资源管理/)

@@ -1,6 +1,6 @@
 import { demoResult } from './ai-demo.js'
 const API_BASE = import.meta.env?.VITE_AI_API_BASE || ''
-export const AI_TIMEOUT_MS = 75000
+export const AI_TIMEOUT_MS = 30000
 
 export async function request(path, options, timeoutMs = AI_TIMEOUT_MS) {
   const controller = new AbortController()
@@ -10,6 +10,7 @@ export async function request(path, options, timeoutMs = AI_TIMEOUT_MS) {
     if (response.status === 504 || response.status === 408) {
       const fallback = demoResult(path, typeof options?.body === 'string' ? JSON.parse(options.body) : {})
       if (fallback) return fallback
+      throw new Error('AI 生成超时')
     }
     if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || `AI 服务请求失败（${response.status}）`)
     return await response.json()
@@ -23,16 +24,16 @@ export async function request(path, options, timeoutMs = AI_TIMEOUT_MS) {
   } finally { clearTimeout(timer) }
 }
 
-export async function generateLearningPack(files, classroomId = 'demo-classroom') {
+export async function generateLearningPack(files, classroomId = 'demo-classroom', timeoutMs = AI_TIMEOUT_MS) {
   const body = new FormData()
   body.append('classroom_id', classroomId)
   files.forEach(file => body.append('files', file, file.name))
   const started = Date.now()
-  const uploaded = await request('/api/resources', { method: 'POST', body })
+  const uploaded = await request('/api/resources', { method: 'POST', body }, timeoutMs)
   if (uploaded.fallback) return uploaded
-  while (Date.now() - started < AI_TIMEOUT_MS) {
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    const remaining = AI_TIMEOUT_MS - (Date.now() - started)
+  while (Date.now() - started < timeoutMs) {
+    await new Promise(resolve => setTimeout(resolve, Math.min(1000, timeoutMs - (Date.now() - started))))
+    const remaining = timeoutMs - (Date.now() - started)
     if (remaining <= 0) break
     let job
     try { job = await request(`/api/jobs/${uploaded.jobId}`, undefined, remaining) }
