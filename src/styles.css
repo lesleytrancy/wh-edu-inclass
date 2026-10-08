@@ -207,6 +207,13 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .student-discussion .group-selection button { min-width: 0; padding: 16px; overflow-wrap: anywhere; }
 .student-discussion .group-selection strong { font-size: 18px; }
 .learning-feedback { margin-top: 12px; padding: 12px; border-radius: 12px; background: var(--lime-soft); font-size: 12px; line-height: 1.7; }
+.answer-reward { margin: 10px auto 18px; padding: 8px 14px; border-radius: 999px; color: #725cff; background: #f0edff; font-size: 13px; font-weight: 700; }
+.approval-check { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: #4d7f2a; font-size: 12px; }
+.approval-check input { accent-color: #6ca93e; }
+.pre-report { padding: 34px; overflow: auto; }
+.pre-report header p { color: var(--muted); }
+.pre-report h1 { margin: 8px 0; }
+.pre-report h2 { margin-top: 30px; }
 .learning-feedback p { white-space: pre-wrap; }
 
 .canvas-pagination { position: absolute; z-index: 8; inset: auto 16px 12px; display: flex; justify-content: space-between; pointer-events: none; }

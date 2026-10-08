@@ -14,6 +14,15 @@ import { generateTeacherInsight, regenerateContent, resetDemoClassroom } from '.
 import { clearDemoBrowserData } from './reset-demo.js'
 import { captureStageSnapshot } from './snapshot.js'
 
+class AppErrorBoundary extends React.Component {
+  state = { error: null }
+  static getDerivedStateFromError(error) { return { error } }
+  render() {
+    if (this.state.error) return <main className="presentation-empty"><h1>页面出现异常</h1><p role="alert">{this.state.error.message || '课堂页面加载失败'}</p><button className="primary" onClick={() => location.reload()}>刷新页面</button></main>
+    return this.props.children
+  }
+}
+
 const geographyTools = Object.entries(import.meta.glob('../tools/*.html', { query: '?raw', import: 'default' })).map(([path, load]) => ({ name: path.split('/').pop().replace(/\.html$/i, ''), load })).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
 
 const initialMessages = [
@@ -293,7 +302,7 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
       <Agent messages={messages} input={input} setInput={setInput} send={send} onClear={() => { setMessagesClearedAt(Date.now()); setMessages([]) }} onReport={() => setPanel('report')} collapsed={agentCollapsed} onToggle={() => setAgentCollapsed(value => !value)} />
     </div>
     {teacherPage === 'class' && <ClassManager students={students} setStudents={setStudents} />}
-    {['materials', 'preview', 'discussion', 'review'].includes(teacherPage) && <MaterialWorkspace state={state} students={students} updateState={updateState} view={teacherPage} onView={view => { setPanel(null); setTeacherPage(view) }} />}
+    {['materials', 'preview', 'discussion', 'review', 'pre-report'].includes(teacherPage) && <MaterialWorkspace state={state} students={students} updateState={updateState} view={teacherPage} onView={view => { setPanel(null); setTeacherPage(view) }} />}
     {toolGeneratorOpen && <GeographyToolGenerator onClose={() => setToolGeneratorOpen(false)} onGenerated={name => setGeneratedTools(current => [...new Set([...current, name])])} />}
     {panel === 'report' && <Report state={state} messages={messages} onClose={() => setPanel(null)} />}
   </div>
@@ -457,19 +466,20 @@ function MaterialWorkspace({ state, students, updateState, view = 'materials', o
   const parse = async () => {
     if (!selected.length || analyzing) return
     setAnalyzing(true); setError('')
-    let pack, discussionQuestion, sourceRefs = [], fallback = false
+    let result, pack, discussionQuestion, sourceRefs = [], fallback = false
     try {
       const files = await getMaterialFiles(materials.filter(material => selected.includes(material.id)))
-      const result = await generateLearningPack(files)
-      if (!result?.preview?.exercises?.length || !result?.review?.exercises?.length) throw new Error('AI 返回的学习包格式不完整')
-      pack = { preview: result.preview, review: result.review }
+      result = await generateLearningPack(files)
+      const validExercise = exercise => exercise && typeof exercise.question === 'string' && Array.isArray(exercise.options) && exercise.options.length >= 2 && typeof exercise.answer === 'string'
+      if (!result?.preview?.exercises?.length || !result?.review?.exercises?.length || !result.preview.exercises.every(validExercise) || !result.review.exercises.every(validExercise)) throw new Error('AI 返回的学习包格式不完整')
+      pack = { preview: { ...result.preview, exercises: result.preview.exercises.map((exercise, index) => ({ ...exercise, id: exercise.id || `p${index + 1}`, approved: exercise.approved ?? false })) }, review: { ...result.review, exercises: result.review.exercises.map((exercise, index) => ({ ...exercise, id: exercise.id || `r${index + 1}`, approved: exercise.approved ?? false })) } }
       discussionQuestion = result.discussionQuestion || defaultDiscussionQuestion
       sourceRefs = result.sourceRefs || []
       fallback = !!result.fallback
     } catch (reason) {
       setError(reason.message || 'AI 服务暂不可用，请重试。'); setAnalyzing(false); return
     }
-    updateState(current => ({ ...current, updatedAt: Date.now(), resourcesReady: true, learningPack: pack, learningAnswers: simulateLearningAnswers(pack, students, current.learningAnswers), discussionQuestion, sourceRefs, aiFallback: fallback, parsedMaterialIds: selected }))
+    updateState(current => ({ ...current, updatedAt: Date.now(), resourcesReady: true, learningPack: pack, questionBank: result.questionBank || [...pack.preview.exercises, ...pack.review.exercises], learningAnswers: simulateLearningAnswers(pack, students, current.learningAnswers), discussionQuestion, sourceRefs, sourceImages: result.sourceImages || [], aiFallback: fallback, parsedMaterialIds: selected }))
     setAnalyzing(false); onView('preview')
   }
   const regenerate = async () => {
@@ -493,7 +503,7 @@ function MaterialWorkspace({ state, students, updateState, view = 'materials', o
   const toggle = id => updateState(current => ({ ...current, updatedAt: Date.now(), analysisMaterialIds: current.analysisMaterialIds?.includes(id) ? current.analysisMaterialIds.filter(item => item !== id) : [...(current.analysisMaterialIds || []), id] }))
   return <main className="material-workspace"><section className="material-library">
     <small className="workspace-eyebrow">课程文件夹</small><h1>准备今天的课堂</h1><p className="modal-sub">上传资料后，选择用于 AI 解析的文件。PDF 可设为课中展示课件。</p>
-    <div className="resource-actions"><label className={`upload-button ${uploading ? 'disabled' : ''}`}><Icon name="upload" />{uploading ? '正在上传…' : '上传资料到课程文件夹'}<input type="file" multiple disabled={uploading} accept=".ppt,.pptx,.pdf,.doc,.docx,.txt,.md,image/*" onChange={upload} /></label><a className="primary resource-link" href="https://feed-studio.stringx.top/admin/projects">资源生成</a></div>
+    <div className="resource-actions"><label className={`upload-button ${uploading ? 'disabled' : ''}`}><Icon name="upload" />{uploading ? '正在上传…' : '上传资料到课程文件夹'}<input type="file" multiple disabled={uploading} accept=".ppt,.pptx,.pdf,.doc,.docx,.txt,.md,image/*" onChange={upload} /></label><a className="primary resource-link" href="https://feed-studio.stringx.top/admin/projects">资源生成</a>{state.learningPack && <button className="ghost" onClick={() => onView('pre-report')}>查看课前报告</button>}</div>
     {error && <p className="voice-error" role="alert">{error}</p>}
     <div className="course-files">{materials.map(material => <article key={material.id} className={selected.includes(material.id) ? 'selected' : ''}>
       <label className="analysis-check"><input type="checkbox" checked={selected.includes(material.id)} onChange={() => toggle(material.id)} /><span className="file-icon"><Icon name="folder" /></span><span><strong>{material.name}</strong><small>教师上传 · 点击选择用于解析</small></span></label>
@@ -501,10 +511,23 @@ function MaterialWorkspace({ state, students, updateState, view = 'materials', o
     </article>)}</div>
     {!materials.length && <div className="upload-empty"><Icon name="upload" /><h2>课程文件夹为空</h2><p>支持 PDF、Word、PPT、文本和图片资料。</p></div>}
   </section><section className="material-editor">
-    <nav className="material-tabs">{[['preview', '课前预习'], ['discussion', '课中讨论'], ['review', '课后复习']].map(([key, label]) => <button key={key} className={view === key ? 'active' : ''} disabled={!state.learningPack} onClick={() => onView(key)}>{label}</button>)}<div className="material-tab-actions"><button className={`publish-pack ${packSent ? 'sent' : ''}`} disabled={!state.learningPack || packSent} onClick={() => updateState(current => publishLearningPack(current))}><Icon name={packSent ? 'check' : 'send'} />{packSent ? '已发送' : '发送学生端'}</button><button className="class-preview" disabled={!state.learningPack} onClick={() => onView('classroom')}><Icon name="screen" />课中预览</button></div></nav>
-    {state.aiFallback && state.learningPack && <p className="demo-content-note" role="status">演示内容</p>}
-    {analyzing ? <AILoading /> : !state.learningPack || view === 'materials' ? <div className="analysis-start"><Icon name="spark" /><h2>选择资料后生成教学内容</h2><p>将生成课前预习资料与测验、课中小组讨论题、课后复习资料与测验。</p><button className="primary" disabled={!selected.length || uploading || analyzing} onClick={parse}><Icon name="spark" /> {analyzing ? 'AI 正在解析资料…' : `AI 解析所选资料${selected.length ? `（${selected.length}）` : ''}`}</button></div> : view === 'discussion' ? <DiscussionContentEditor onRegenerate={regenerate} question={state.discussionQuestion} onSave={question => updateState(current => ({ ...current, discussionQuestion: question, updatedAt: Date.now() }))} /> : <LearningContentEditor onRegenerate={regenerate} key={view} stage={view} content={state.learningPack[view]} onSave={content => updateState(current => ({ ...current, learningPack: { ...current.learningPack, [view]: content }, updatedAt: Date.now() }))} />}
+    <nav className="material-tabs">{[['preview', '课前预习'], ['discussion', '课中讨论'], ['review', '课后复习']].map(([key, label]) => <button key={key} className={view === key ? 'active' : ''} disabled={!state.learningPack} onClick={() => onView(key)}>{label}</button>)}<div className="material-tab-actions"><button className={`publish-pack ${packSent ? 'sent' : ''}`} disabled={!state.learningPack || packSent || [state.learningPack?.preview, state.learningPack?.review].some(stage => stage?.exercises?.some(exercise => exercise.approved === false))} onClick={() => updateState(current => publishLearningPack(current))}><Icon name={packSent ? 'check' : 'send'} />{packSent ? '已发送' : '发送学生端（审核后）'}</button><button className="class-preview" disabled={!state.learningPack} onClick={() => onView('classroom')}><Icon name="screen" />课中预览</button></div></nav>
+    {state.aiFallback && state.learningPack && <p className="demo-content-note" role="status">演示内容：AI 生成超时，已使用预设学习包</p>}
+    {analyzing ? <AILoading /> : view === 'pre-report' ? <PreClassReport state={state} students={students} /> : !state.learningPack || view === 'materials' ? <div className="analysis-start"><Icon name="spark" /><h2>选择资料后生成教学内容</h2><p>将生成课前预习资料与测验、课中小组讨论题、课后复习资料与测验。</p><button className="primary" disabled={!selected.length || uploading || analyzing} onClick={parse}><Icon name="spark" /> {analyzing ? 'AI 正在解析资料…' : `AI 解析所选资料${selected.length ? `（${selected.length}）` : ''}`}</button></div> : view === 'discussion' ? <DiscussionContentEditor onRegenerate={regenerate} question={state.discussionQuestion} onSave={question => updateState(current => ({ ...current, discussionQuestion: question, updatedAt: Date.now() }))} /> : <LearningContentEditor onRegenerate={regenerate} key={view} stage={view} content={state.learningPack[view]} onSave={content => updateState(current => ({ ...current, learningPack: { ...current.learningPack, [view]: content }, updatedAt: Date.now() }))} />}
   </section></main>
+}
+
+function PreClassReport({ state, students }) {
+  const content = state.learningPack?.preview
+  const rows = students.map(student => {
+    const answers = state.learningAnswers?.preview?.[student.id] || {}
+    const submitted = content?.exercises?.filter(exercise => !answers[exercise.id]?.simulated) || []
+    const correct = submitted.filter(exercise => answers[exercise.id]?.text === exercise.answer).length
+    return { student, submitted: submitted.length, correct }
+  })
+  const attempted = rows.filter(row => row.submitted)
+  const accuracy = attempted.length ? Math.round(attempted.reduce((sum, row) => sum + row.correct / content.exercises.length, 0) / attempted.length * 100) : null
+  return <section className="pre-report"><header><small>课前诊断</small><h1>课前预习结果分析</h1><p>基于学生真实提交记录，作为课堂目标与提问的起点。</p></header><div className="report-stats"><article><strong>{accuracy === null ? '暂无' : `${accuracy}%`}</strong><span>平均正确率</span></article><article><strong>{attempted.length}/{students.length}</strong><span>已提交学生</span></article><article><strong>{content?.exercises?.length || 0}</strong><span>预习题目</span></article></div><h2>分层关注</h2><ul><li>{accuracy === null ? '尚未收到真实提交，课堂开始时先完成快速诊断。' : accuracy < 80 ? '存在需要回收的基础概念问题，建议先用证据题和同伴互助进行补救。' : '基础概念掌握较好，可将课堂时间用于迁移、解释和探究。'}</li></ul><h2>学生明细</h2><div className="learning-students">{rows.map(row => <article key={row.student.id}><strong>{row.student.name}</strong><p>{row.submitted ? `${row.correct}/${content.exercises.length} 题正确` : '未提交'}</p></article>)}</div></section>
 }
 
 function LearningContentEditor({ stage, content, onSave, onRegenerate }) {
@@ -527,7 +550,7 @@ function LearningContentEditor({ stage, content, onSave, onRegenerate }) {
     {draft.exercises.map((exercise, index) => <fieldset key={exercise.id}><legend>第 {index + 1} 题</legend>
       <label>题目<input required value={exercise.question} onChange={event => { setSaved(false); updateExercise(index, { question: event.target.value }) }} /></label>
       <div className="option-inputs"><span>选项</span>{exercise.options.map((option, optionIndex) => <label key={optionIndex}>选项 {optionIndex + 1}<input required value={option} onChange={event => { setSaved(false); updateOption(index, optionIndex, event.target.value) }} /></label>)}</div>
-      <label>参考答案<input required value={exercise.answer} onChange={event => { setSaved(false); updateExercise(index, { answer: event.target.value }) }} /></label>
+      <label>参考答案<input required value={exercise.answer} onChange={event => { setSaved(false); updateExercise(index, { answer: event.target.value }) }} /></label><label className="approval-check"><input type="checkbox" checked={exercise.approved !== false} onChange={event => updateExercise(index, { approved: event.target.checked })} /> 教师已审核并加入题库</label>
     </fieldset>)}
   </form>
 }
@@ -653,7 +676,7 @@ function Student({ student, onHome, state, updateState }) {
     <nav className="student-tabs">{[['preview','课前预习'],['class','课堂互动'],['review','课后复习']].map(([id, label]) => <button className={tab === id ? 'active' : ''} onClick={() => setTab(id)} key={id}>{label}</button>)}</nav>
     <div className="student-grid"><section className="activity-card"><div className="section-label">{tab === 'preview' ? '课前预习' : tab === 'review' ? '课后复习' : '课堂互动'}<span>{state.phase === 'class' ? '● 与教师端同步' : ''}</span></div>
       {tab === 'preview' && <LearningExercises key="preview" stage="preview" state={state} student={student} updateState={updateState} />}
-      {tab === 'class' && state.activity === 'discussion' && state.questionRun?.kind === 'discussion' ? <StudentDiscussion key={state.questionRun.id} run={state.questionRun} student={student} updateState={updateState} stateMinutes={state.discussionMinutes} /> : tab === 'class' && state.activity === 'question' && state.questionRun ? <StudentQuestion key={state.questionRun.id} run={state.questionRun} student={student} updateState={updateState} /> : tab === 'class' && <div className="task-content"><span className="pulse-ring" /><small>{activity.title}</small><h1>{activity.text}</h1><p>{state.activity === 'screen' ? '教师发起互动后，题目或小组任务会自动出现在这里' : '说出你的想法，学伴会帮你组织表达。'}</p>{state.activity !== 'screen' && <div className="answer-box"><textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="在这里写下你的答案…" /><button className="primary" onClick={() => answer.trim() && setSent(true)}>{sent ? '已提交 ✓' : '提交回答'}</button></div>}</div>}
+      {tab === 'class' && state.activity === 'discussion' && state.questionRun?.kind === 'discussion' ? <StudentDiscussion key={state.questionRun.id} run={state.questionRun} student={student} updateState={updateState} stateMinutes={state.discussionMinutes} /> : tab === 'class' && state.activity === 'question' && state.questionRun ? <StudentQuestion key={state.questionRun.id} run={state.questionRun} student={student} updateState={updateState} points={state.studentPoints?.[student.id] || 0} /> : tab === 'class' && <div className="task-content"><span className="pulse-ring" /><small>{activity.title}</small><h1>{activity.text}</h1><p>{state.activity === 'screen' ? '教师发起互动后，题目或小组任务会自动出现在这里' : '说出你的想法，学伴会帮你组织表达。'}</p>{state.activity !== 'screen' && <div className="answer-box"><textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="在这里写下你的答案…" /><button className="primary" onClick={() => answer.trim() && setSent(true)}>{sent ? '已提交 ✓' : '提交回答'}</button></div>}</div>}
       {tab === 'review' && <LearningExercises key="review" stage="review" state={state} student={student} updateState={updateState} />}
     </section><StudyBuddy student={student} stage={tab} state={state} updateState={updateState} /></div>
   </div>
@@ -720,7 +743,7 @@ function StudentDiscussion({ run, student, updateState, stateMinutes }) {
   </div>
 }
 
-function StudentQuestion({ run, student, updateState }) {
+function StudentQuestion({ run, student, updateState, points = 0 }) {
   const [text, setText] = useState(() => run.answers.find(answer => answer.id === student.id)?.text || '')
   const voiceBase = useRef('')
   const voice = useVoiceCapture(transcript => setText(`${voiceBase.current}${transcript}`))
@@ -731,7 +754,7 @@ function StudentQuestion({ run, student, updateState }) {
   }, [run.status, text, voice.active])
   if (run.status === 'analyzing') return <div className="student-question-state"><span className="analysis-spinner" /><h1>回答分析中</h1><p>学伴正在整理全班同学的回答…</p></div>
   if (run.status === 'result') return <div className="student-question-state"><span className="result-check"><Icon name="check" /></span><small>本次作答已完成</small><h1>谢谢你的回答</h1><p>老师正在带领大家查看共性问题与建议。</p></div>
-  return <div className="student-question-state"><div className="student-timer"><span>请作答</span><b>{seconds}</b><small>秒</small></div><h1>{run.question}</h1><p>点击麦克风录音，转写内容自动同步给教师</p><button className={`student-mic ${voice.active ? 'listening' : ''}`} disabled={voice.pending} onClick={() => { if (voice.active) voice.stop(); else { voiceBase.current = text ? `${text}\n` : ''; voice.start() } }} aria-label={voice.active ? '停止回答' : '开始回答'}><Icon name={voice.active ? 'stop' : 'mic'} /></button><strong className="mic-label">{voice.pending ? '等待麦克风授权…' : voice.active ? '正在录音 · 点击停止' : '点击开始回答'}</strong>
+  return <div className="student-question-state"><div className="student-timer"><span>请作答</span><b>{seconds}</b><small>秒</small></div><h1>{run.question}</h1><p>点击麦克风录音，转写内容自动同步给教师</p><div className="answer-reward" role="status">本题回答积分：+1 · 累计积分：{points}</div><button className={`student-mic ${voice.active ? 'listening' : ''}`} disabled={voice.pending} onClick={() => { if (voice.active) voice.stop(); else { voiceBase.current = text ? `${text}\n` : ''; voice.start() } }} aria-label={voice.active ? '停止回答' : '开始回答'}><Icon name={voice.active ? 'stop' : 'mic'} /></button><strong className="mic-label">{voice.pending ? '等待麦克风授权…' : voice.active ? '正在录音 · 点击停止' : '点击开始回答'}</strong>
     {voice.error && <p className="voice-error" role="status">{voice.error}</p>}
     <label className="discussion-label">我的回答<textarea value={text} readOnly={voice.active || voice.pending} onChange={event => setText(event.target.value)} placeholder="停止录音后可修改转写或输入文字，自动同步给教师" /></label>
     {voice.audioUrl && <div className="recorded-audio"><audio controls src={voice.audioUrl} /><a href={voice.audioUrl} download="课堂回答录音">下载本次录音（仅本机）</a></div>}
@@ -881,4 +904,4 @@ function App() {
   return <Console onEnter={navigate} onReset={resetDemo} />
 }
 
-createRoot(document.getElementById('root')).render(<App />)
+createRoot(document.getElementById('root')).render(<AppErrorBoundary><App /></AppErrorBoundary>)

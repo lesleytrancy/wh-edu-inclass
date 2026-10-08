@@ -28,6 +28,7 @@ export function publishLearningContent(state, stage, content) {
 export function publishLearningPack(state) {
   const pack = state.learningPack
   if (!pack?.preview || !pack?.review) return state
+  if ([pack.preview, pack.review].some(stage => stage.exercises.some(exercise => exercise.approved === false))) return state
   const sentAt = Date.now()
   const copy = Object.fromEntries(['preview', 'review'].map(stage => [stage, { ...pack[stage], exercises: pack[stage].exercises.map(exercise => ({ ...exercise, options: [...exercise.options] })) }]))
   const notification = { id: `learning-pack-${sentAt}`, stage: 'preview', title: '课前预习与课后复习资料已发布', sentAt }

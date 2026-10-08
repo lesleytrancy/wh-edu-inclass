@@ -3,19 +3,18 @@
 2. Run:
 
 ```
-npm run dev --host 0.0.0.0
+npm run dev -- --host 0.0.0.0
 ```
 
-3. ensure that the output shows the port as being "5173", you should see the following:
+3. Use the exact `Local` or `Network` URL printed by Vite. Local development uses HTTP. The port may differ if 5173 is occupied:
 
 ```
   VITE v8.3.0  ready in 348 ms
 
-  ➜  Local:   https://localhost:5173/
-  ➜  Local:   https://Lesleys-MacBook-Air.local:5173/
-  ➜  Network: https://192.168.1.7:5173/  en0
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://192.168.1.7:5173/
 ```
 
 If this is the case, open the PWA (looks like an app) on the Ipad, labelled "`武侯课教智慧课堂`"
 
-If not, close any other Vite processes that are running OR open the correct port via "`https://Lesleys-MacBook-Air.local:CORRECT_PORT`" in Safari
+If another port is printed, use that port in Safari. Do not change `http` to `https`: the local server does not speak HTTPS. For an HTTPS address on another device, use the Cloudflare Tunnel command in README.md.
