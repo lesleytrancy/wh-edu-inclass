@@ -17,6 +17,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from .teacher_library import login as teacher_login, seed_teachers, teacher_for_token, validate_library
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("AI_DATA_DIR", ROOT / "data"))
@@ -63,11 +64,56 @@ def init_db() -> None:
               id TEXT PRIMARY KEY, classroom_id TEXT NOT NULL, type TEXT NOT NULL,
               envelope TEXT NOT NULL, created_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS teachers (
+              username TEXT PRIMARY KEY, name TEXT NOT NULL, salt TEXT NOT NULL,
+              password_hash TEXT NOT NULL, library TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS teacher_sessions (
+              token TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES teachers(username),
+              expires_at REAL NOT NULL
+            );
             """
         )
+        seed_teachers(db)
 
 
 init_db()
+
+
+class TeacherLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/teachers/login")
+def login_teacher(request: TeacherLoginRequest) -> dict:
+    with connect() as db:
+        return teacher_login(db, request.username, request.password)
+
+
+@app.get("/api/teachers/library")
+def get_teacher_library(request: Request) -> dict:
+    with connect() as db:
+        teacher = teacher_for_token(db, request.headers.get("authorization"))
+        return {"teacher": {"username": teacher["username"], "name": teacher["name"]}, "library": json.loads(teacher["library"])}
+
+
+@app.post("/api/teachers/logout")
+def logout_teacher(request: Request) -> dict:
+    token = (request.headers.get("authorization") or "").removeprefix("Bearer ")
+    with connect() as db:
+        teacher_for_token(db, request.headers.get("authorization"))
+        db.execute("DELETE FROM teacher_sessions WHERE token = ?", (token,))
+    return {"ok": True}
+
+
+@app.put("/api/teachers/library")
+def save_teacher_library(library: dict, request: Request) -> dict:
+    validate_library(library)
+    with connect() as db:
+        teacher = teacher_for_token(db, request.headers.get("authorization"))
+        db.execute("UPDATE teachers SET library = ? WHERE username = ?", (json.dumps(library, ensure_ascii=False), teacher["username"]))
+    return {"ok": True}
 
 
 def now_ms() -> int:
@@ -107,23 +153,41 @@ def extract_json(text: str) -> dict:
         return json.loads(match.group())
 
 
+def normalize_discussion(result: dict) -> dict:
+    discussion = result.get("discussionQuestion")
+    if isinstance(discussion, dict):
+        text = discussion.get("question") or discussion.get("text") or discussion.get("prompt")
+        if not text and isinstance(discussion.get("exercises"), list):
+            questions = [item.get("question", "").strip() for item in discussion["exercises"] if isinstance(item, dict) and isinstance(item.get("question"), str)]
+            text = "请结合资料开展小组讨论，说明判断依据：\n" + "\n".join(f"{i}. {question}" for i, question in enumerate(questions, 1)) if questions else None
+        if isinstance(text, str) and text.strip():
+            result["discussionQuestion"] = text.strip()
+    return result
+
+
+def validate_learning_stage(content: dict) -> dict:
+    if not isinstance(content, dict) or not isinstance(content.get("title"), str) or not content["title"].strip():
+        raise ValueError("资料标题为空")
+    tasks = content.get("tasks")
+    if not isinstance(tasks, list) or len(tasks) < 3 or not all(isinstance(task, str) and task.strip() for task in tasks):
+        raise ValueError("学习任务至少需要三条，并依据所选资料生成")
+    content["task"] = "\n".join(f"{i}. {task.strip()}" for i, task in enumerate(tasks, 1))
+    content["exercises"] = []
+    return content
+
+
+def validate_discussion(content: dict) -> dict:
+    if not isinstance(content, dict) or not all(isinstance(content.get(key), str) and content[key].strip() for key in ("question", "analysis", "goal")):
+        raise ValueError("讨论题必须包含问题、解析和讨论目标")
+    return {key: content[key].strip() for key in ("question", "analysis", "goal")}
+
+
 def validate_pack(result: dict) -> dict:
-    for stage, prefix in (("preview", "p"), ("review", "r")):
-        content = result.get(stage)
-        if not isinstance(content, dict) or not all(isinstance(content.get(key), str) and content[key].strip() for key in ("title", "task")):
-            raise ValueError(f"{stage} 内容不完整")
-        exercises = content.get("exercises")
-        if not isinstance(exercises, list) or len(exercises) != 3:
-            raise ValueError(f"{stage} 必须恰好包含 3 题")
-        for index, exercise in enumerate(exercises, 1):
-            options = exercise.get("options")
-            if not isinstance(options, list) or len(options) < 2 or not all(isinstance(option, str) and option.strip() for option in options):
-                raise ValueError(f"{stage} 第 {index} 题选项无效")
-            if not isinstance(exercise.get("question"), str) or exercise.get("answer") not in options:
-                raise ValueError(f"{stage} 第 {index} 题答案无效")
-            exercise["id"] = f"{prefix}{index}"
-    if not isinstance(result.get("discussionQuestion"), str) or not result["discussionQuestion"].strip():
-        raise ValueError("讨论题为空")
+    for stage in ("preview", "review"):
+        result[stage] = validate_learning_stage(result.get(stage))
+    discussion = validate_discussion(result.get("discussion"))
+    result["discussions"] = [dict(discussion, id=uuid.uuid4().hex)]
+    result["discussionQuestion"] = discussion["question"]
     return result
 
 
@@ -240,8 +304,8 @@ def run_learning_job(job_id: str, classroom_id: str, resource_ids: list[str]) ->
         try:
             content = call_model(
                 [
-                    {"role": "system", "content": "你是中小学教师备课助手。只依据资料生成内容，返回严格 JSON。每阶段恰好三道三选一题，答案必须与一个选项完全一致。"},
-                    {"role": "user", "content": "生成 preview、review 和 discussionQuestion。preview/review 均含 title、task、exercises；每题含 id、question、options、answer；如果资料含图片，优先设计需要观察原图的题目，并可在题目中返回 imageRef（只能使用给出的原始图片名）。资料：\n" + "\n\n".join(documents) + f"\n原始图片：{json.dumps(images, ensure_ascii=False)}"},
+                    {"role": "system", "content": "你是中小学教师备课助手。仅依据所选资料生成学习任务与开放式讨论。不得生成测验题或选项。返回严格 JSON。"},
+                    {"role": "user", "content": "生成 preview、review 和 discussion。preview/review 均含 title 字符串、tasks 字符串数组（至少3条具体学习任务，各条紧扣资料内容，包含行动与学习产出）；不生成 exercises。discussion 为对象，必须包含 question（开放式问题）、analysis（基于资料的解析）、goal（讨论目标）三个字符串。资料：\n" + "\n\n".join(documents) + f"\n原始图片：{json.dumps(images, ensure_ascii=False)}"},
                 ],
                 json_output=True,
             )
@@ -250,7 +314,7 @@ def run_learning_job(job_id: str, classroom_id: str, resource_ids: list[str]) ->
             raise
         result["sourceRefs"] = [{"resourceId": row["id"], "name": row["name"]} for row in rows]
         result["sourceImages"] = images
-        result["questionBank"] = [{**exercise, "approved": False, "sourceRefs": result["sourceRefs"]} for stage in ("preview", "review") for exercise in result[stage]["exercises"]]
+        result["questionBank"] = []
         with connect() as db:
             db.execute("UPDATE jobs SET status = 'completed', result = ? WHERE id = ?", (json.dumps(result, ensure_ascii=False), job_id))
         emit(classroom_id, "learning_pack.drafted", "LearningPackAgent", {"jobId": job_id, "sourceRefs": result["sourceRefs"]})
@@ -303,8 +367,17 @@ def reset_demo_classroom() -> dict:
     for path in paths:
         if path.resolve().is_relative_to(upload_root):
             path.unlink(missing_ok=True)
+    with connect() as db:
+        teacher_material_ids = {
+            material["id"]
+            for row in db.execute("SELECT library FROM teachers")
+            for book in json.loads(row["library"])["books"]
+            for chapter in book["chapters"]
+            for section in chapter["sections"]
+            for material in section["materials"]
+        }
     for path in CLASSROOM_MATERIAL_DIR.iterdir():
-        if path.is_file():
+        if path.is_file() and path.name not in teacher_material_ids:
             path.unlink()
     return {"ok": True}
 
@@ -535,16 +608,14 @@ def regenerate_content(request: RegenerateRequest) -> dict:
         refs = [{"name": row["name"], "excerpt": row["markdown"][:12000]} for row in rows]
     try:
         result = extract_json(call_model([
-            {"role": "system", "content": "你是备课助手。根据原内容和资料重新设计内容，保留教学目标，变换情境与问题，不照抄。返回严格 JSON。discussion 阶段返回 discussionQuestion 字符串；其他阶段返回 title、task、exercises，恰好三题，每题含 id、question、options 三个选项和 answer（必须等于一个选项）。"},
+            {"role": "system", "content": "你是备课助手。只依据所选资料生成当前 stage 的内容，不返回其他阶段。不得生成测验题。preview/review 返回 title 字符串和 tasks 字符串数组，至少3条具体学习任务。discussion 返回 discussion 对象，包含 question、analysis、goal 三个非空字符串；根据 previous 中的新建问题提示生成开放式小组讨论题、解析和讨论目标。"},
             {"role": "user", "content": json.dumps({"stage": request.stage, "previous": request.content, "sources": refs}, ensure_ascii=False)},
         ], json_output=True))
         if request.stage == "discussion":
-            if not isinstance(result.get("discussionQuestion"), str) or not result["discussionQuestion"].strip():
-                raise ValueError("讨论题为空")
+            discussion = validate_discussion(result.get("discussion", result))
+            result = {"discussion": discussion, "discussionQuestion": discussion["question"]}
         else:
-            validate_pack({"preview": result, "review": result, "discussionQuestion": "讨论"})
-            for index, exercise in enumerate(result["exercises"], 1):
-                exercise["id"] = f"{request.stage}-{uuid.uuid4().hex[:8]}-{index}"
+            result = validate_learning_stage(result)
         return result
     except Exception as error:
         raise ai_failure(error, "AI 重新生成失败，请重试") from error
@@ -630,3 +701,52 @@ def classroom_pre_report(request: ContextRequest) -> dict:
         "issues": ["暂无足够作答数据。" if not attempted else ("部分学生存在错题，需要在课堂中回收证据并再次检测。" if accuracy is None or accuracy < 80 else "当前预习正确率较高，可安排迁移与探究任务。")],
         "baseline": {"accuracy": accuracy, "students": rows},
     }
+
+
+@app.post("/api/question-banks/upload")
+async def upload_question_bank(file: UploadFile = File(...)) -> dict:
+    import base64
+    import mimetypes
+    filename = Path(file.filename or "题库.docx").name
+    raw = await file.read()
+    if len(raw) > 40 * 1024 * 1024:
+        raise HTTPException(413, "题库文件不能超过40MB")
+    path = UPLOAD_DIR / f"bank-{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
+    try:
+        path.write_bytes(raw)
+        if path.suffix == ".json":
+            bank = json.loads(raw)
+        else:
+            text = parse_file(path)
+            images = {}
+            if path.suffix in {".docx", ".pptx"}:
+                with zipfile.ZipFile(path) as archive:
+                    for name in archive.namelist():
+                        if "/media/" in name and Path(name).suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+                            mime = mimetypes.guess_type(name)[0] or "image/png"
+                            images[Path(name).name] = f"data:{mime};base64," + base64.b64encode(archive.read(name)).decode()
+            bank = extract_json(call_model([
+                {"role": "system", "content": "解析教师题库，不编造题目答案。返回 JSON 对象，含 name、questions 数组。每题含 question、context、options（无选项为空数组）、answer、explanation、type（single/fill/comprehensive）、difficulty（easy/medium/hard）、difficultyCoefficient（原文难度系数）、images（对应原图文件名数组，仅匹配题目实际引用的图）。保留原题、答案、解析。"},
+                {"role": "user", "content": json.dumps({"text": text, "imageNames": list(images)}, ensure_ascii=False)},
+            ], json_output=True))
+            for question in bank.get("questions", []):
+                question["images"] = [images[name] for name in question.get("images", []) if name in images]
+        if not isinstance(bank, dict) or not isinstance(bank.get("questions"), list) or not bank["questions"]:
+            raise ValueError("题库必须包含非空 questions 数组")
+        for index, question in enumerate(bank["questions"]):
+            if not isinstance(question, dict) or not all(isinstance(question.get(k), str) and question[k].strip() for k in ("question", "answer")):
+                raise ValueError(f"第{index + 1}题缺少问题或答案")
+            if question.get("type") not in {"single", "fill", "comprehensive"} or question.get("difficulty") not in {"easy", "medium", "hard"}:
+                raise ValueError(f"第{index + 1}题缺少有效题型或难度")
+            if not isinstance(question.get("options", []), list) or not all(isinstance(x, str) for x in question.get("options", [])):
+                raise ValueError("选项格式无效")
+            if question["type"] == "single" and (len(question.get("options", [])) < 2 or question["answer"] not in question["options"]):
+                raise ValueError(f"第{index + 1}题答案必须与选项一致")
+            if not isinstance(question.get("images", []), list) or not all(isinstance(x, str) and (x.startswith("/question-bank/") or x.startswith("data:image/") or x.startswith("https://")) for x in question.get("images", [])):
+                raise ValueError("图片地址格式无效")
+            question.update(id=f"uploaded-{index}", options=question.get("options", []), images=question.get("images", []))
+        return {**bank, "id": uuid.uuid4().hex, "name": bank.get("name") or filename}
+    except Exception as error:
+        raise HTTPException(400, f"题库上传解析失败：{error}") from error
+    finally:
+        path.unlink(missing_ok=True)

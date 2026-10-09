@@ -1,4 +1,8 @@
 import { useEffect, useState } from 'react'
+import { pptxMime } from './pptx-state.js'
+
+export const isPowerPoint = material => /\.(ppt|pptx)$/i.test(material?.name || '') || ['application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'].includes(material?.type)
+export const isPresentation = material => isPowerPoint(material) || material?.type === 'application/pdf' || /\.pdf$/i.test(material?.name || '')
 
 export function getMaterialPage(state, materialId) {
   const page = state.materialPages?.[materialId]
@@ -23,9 +27,32 @@ function openMaterials() {
   })
 }
 
+const uploadQueues = new Map()
 async function uploadMaterial(material) {
-  const response = await fetch(`/api/classroom/materials/${material.id}`, { method: 'PUT', body: material.file })
-  if (!response.ok) throw new Error(`资料同步失败（${response.status}）`)
+  const upload = (uploadQueues.get(material.id) || Promise.resolve()).catch(() => {}).then(async () => {
+    const response = await fetch(`/api/classroom/materials/${material.id}`, { method: 'PUT', body: material.file })
+    if (!response.ok) throw new Error(`资料同步失败（${response.status}）`)
+  })
+  uploadQueues.set(material.id, upload)
+  try { await upload } finally { if (uploadQueues.get(material.id) === upload) uploadQueues.delete(material.id) }
+}
+
+export async function savePresentationContent(material, bytes) {
+  if (!(bytes instanceof Uint8Array) || !bytes.length) throw new Error('课件内容为空，无法保存。')
+  const metadata = { ...material, name: material.name.replace(/\.ppt$/i, '.pptx'), type: pptxMime, revision: Math.max(Date.now(), (material.revision || 0) + 1) }
+  const file = new File([bytes], metadata.name, { type: pptxMime })
+  const db = await openMaterials()
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction('files', 'readwrite')
+      transaction.objectStore('files').put({ ...metadata, file })
+      transaction.oncomplete = resolve
+      transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error)
+    })
+    await uploadMaterial({ ...metadata, file })
+    return metadata
+  } finally { db.close() }
 }
 
 async function localMaterial(id) {
@@ -41,8 +68,8 @@ async function localMaterial(id) {
 
 async function materialFile(material) {
   const local = await localMaterial(material.id)
-  if (local?.file) return local.file
-  const response = await fetch(`/api/classroom/materials/${material.id}`)
+  if (local?.file && (!material.revision || local.revision === material.revision)) return local.file
+  const response = await fetch(`/api/classroom/materials/${material.id}?v=${material.revision || 0}`)
   if (!response.ok) throw new Error('资料尚未同步到服务器，请在上传资料的设备上刷新页面。')
   return new File([await response.blob()], material.name, { type: material.type })
 }
@@ -74,7 +101,7 @@ export async function getMaterialFiles(materials) {
   return Promise.all(materials.map(materialFile))
 }
 
-export function useMaterial(id) {
+export function useMaterial(id, revision = 0) {
   const [asset, setAsset] = useState({ id: null, url: null, error: '' })
   useEffect(() => {
     if (!id) return
@@ -83,12 +110,12 @@ export function useMaterial(id) {
       try {
         const material = await localMaterial(id)
         if (cancelled) return
-        url = material?.file ? URL.createObjectURL(material.file) : `/api/classroom/materials/${id}`
+        url = material?.file && (!revision || material.revision === revision) ? URL.createObjectURL(material.file) : `/api/classroom/materials/${id}?v=${revision}`
         setAsset({ id, url, error: '' })
       } catch (error) { if (!cancelled) setAsset({ id, url: null, error: error.message || '资料读取失败，请重新上传。' }) }
     }
     load()
     return () => { cancelled = true; if (url) URL.revokeObjectURL(url) }
-  }, [id])
+  }, [id, revision])
   return asset.id === id ? asset : { id, url: null, error: '' }
 }

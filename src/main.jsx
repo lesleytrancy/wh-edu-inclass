@@ -1,18 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BookOpen, GraduationCap, Monitor, Bot, FolderOpen, Upload, Sparkles, Users, Pencil, CircleHelp, MessagesSquare, Send, ArrowLeft, ArrowRight, Check, Plus, X, Download, Mic, Camera, Square, ChevronDown, Bell } from 'lucide-react'
+import { BookOpen, GraduationCap, Monitor, Bot, FolderOpen, Upload, Sparkles, Users, Pencil, CircleHelp, MessagesSquare, Send, ArrowLeft, ArrowRight, Check, Plus, X, Download, Mic, Camera, Square, ChevronDown, Bell, UserRound } from 'lucide-react'
+import 'pptx-react-viewer/styles'
 import './styles.css'
+import { composeQuestions, matchingQuestions } from './question-bank.js'
 import { seedStudents, migrateStudents } from './students.js'
 import { createDiscussion, defaultDiscussionQuestion, joinDiscussion, startDiscussion, setGroupAnswer, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from './discussion.js'
 import { setQuestionAnswer } from './questions.js'
 import { useVoiceCapture } from './useVoiceCapture.js'
-import { simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback, publishLearningPack } from './learning.js'
-import { saveMaterials, getMaterialFiles, syncLocalMaterials, useMaterial, getMaterialPage, turnMaterialPage } from './materials.js'
+import { simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback, publishLearningPack, updateResourceContent, resourcesConfirmed, studentStageAvailable } from './learning.js'
+import { saveMaterials, getMaterialFiles, syncLocalMaterials, useMaterial, getMaterialPage, turnMaterialPage, isPowerPoint, isPresentation } from './materials.js'
 import { analyzeClassroomAnswers, askAgent, generateLearningPack, generateSnapshotQuestion, analyzeLearningAnswers } from './ai.js'
 import ClassroomReport, { AILoading } from './ClassroomReport.jsx'
+import { setPresentationPage } from './pptx-state.js'
+import AnalysisReports, { StudentReport, PreLearningReport } from './AnalysisReports.jsx'
+import { addReportNotification, reportNotifications } from './reports.js'
 import { generateTeacherInsight, regenerateContent, resetDemoClassroom } from './ai.js'
 import { clearDemoBrowserData } from './reset-demo.js'
 import { captureStageSnapshot } from './snapshot.js'
+import { teacherAccounts, findSection, updateSection, addSection, removeSection, loginTeacher, loadTeacherLibrary, saveTeacherLibrary, logoutTeacher } from './teacher-library.js'
+
+const PowerPointPresentation = React.lazy(() => import('./PowerPointPresentation.jsx'))
 
 class AppErrorBoundary extends React.Component {
   state = { error: null }
@@ -34,7 +42,7 @@ const icons = {
   folder: FolderOpen, upload: Upload, spark: Sparkles, users: Users,
   pen: Pencil, question: CircleHelp, chat: MessagesSquare, send: Send,
   back: ArrowLeft, next: ArrowRight, check: Check, plus: Plus, close: X,
-  download: Download, mic: Mic, camera: Camera, stop: Square, down: ChevronDown, bell: Bell,
+  download: Download, mic: Mic, camera: Camera, stop: Square, down: ChevronDown, bell: Bell, user: UserRound,
 }
 
 function useStoredState(key, initial) {
@@ -109,13 +117,27 @@ function Topbar({ title, onHome, actions, collapsible = false }) {
   return <header className="topbar"><button className="brand-button" onClick={onHome}><Brand compact /></button><span className="crumb">/ {title}</span><div className="top-actions">{actions}</div>{collapsible && <button type="button" className="topbar-toggle" aria-label="收起头部工具栏" aria-expanded="true" onClick={() => setCollapsed(true)}><Icon name="back" /><span>收起头部工具栏</span></button>}</header>
 }
 
-function Modal({ title, children, onClose }) {
-  return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}><section className="modal"><div className="modal-head"><h2>{title}</h2><button className="circle-button" onClick={onClose}><Icon name="close" /></button></div>{children}</section></div>
+function UserMenu({ user, onLogout }) {
+  return <details className="user-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false }} onKeyDown={event => { if (event.key === 'Escape') event.currentTarget.open = false }}><summary className="avatar" aria-label="用户信息"><Icon name="user" /></summary><div className="user-popover"><strong>{user.name}</strong><p>{user.username ? `教师账号：${user.username}` : `学生学号：${user.id}`}</p><button className="ghost" onClick={onLogout}>退出登录</button></div></details>
+}
+function TeacherNotifications({ state, teacher, updateState, onOpen }) {
+  const [open, setOpen] = useState(false)
+  const notifications = reportNotifications(state)
+  const readIds = state.reportNotificationReads?.[teacher.username] || []
+  const unread = notifications.some(item => !readIds.includes(item.id))
+  return <div className="student-notifications"><button className="notification-button" aria-label="报告消息通知" aria-expanded={open} onClick={() => { setOpen(value => !value); if (!open) updateState(current => ({ ...current, reportNotificationReads: { ...current.reportNotificationReads, [teacher.username]: notifications.map(item => item.id) } })) }}><Icon name="bell" />{unread && <i />}</button>{open && <div className="notification-panel"><strong>报告消息</strong>{notifications.length ? notifications.map(item => <button key={item.id} onClick={() => { onOpen(item.tab, item.sectionId); setOpen(false) }}><b>{item.title}</b><small>{new Date(item.sentAt).toLocaleString('zh-CN')}</small></button>) : <p>暂无新消息</p>}</div>}</div>
 }
 
-function Teacher({ onHome, state, updateState, students, setStudents, messages, setMessages, messagesClearedAt, setMessagesClearedAt }) {
+function Modal({ title, children, onClose }) {
+  return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}><section className="modal"><div className="modal-head"><h2>{title}</h2><button type="button" className="circle-button" aria-label="关闭弹窗" onClick={onClose}><Icon name="close" /></button></div>{children}</section></div>
+}
+
+function Teacher({ onHome, onLogout, teacher, library, setLibrary, libraryError, state, updateState, students, setStudents, messages, setMessages, messagesClearedAt, setMessagesClearedAt }) {
   const [panel, setPanel] = useState(null)
   const [teacherPage, setTeacherPage] = useState('materials')
+  const [reportTab, setReportTab] = useState('pre')
+  const [selectedStudent, setSelectedStudent] = useState(null)
+  const openReports = (tab = 'pre') => { setReportTab(tab); setTeacherPage('reports') }
   const [questionVisible, setQuestionVisible] = useState(true)
   const [agentCollapsed, setAgentCollapsed] = useState(false)
   const [input, setInput] = useState('')
@@ -125,6 +147,9 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
   const [draggingQuestion, setDraggingQuestion] = useState(false)
   const [snapshotting, setSnapshotting] = useState(false)
   const [snapshotError, setSnapshotError] = useState('')
+  const [startingClass, setStartingClass] = useState(false)
+  const presentationRef = useRef(null)
+  const [presentationHeader, setPresentationHeader] = useState(null)
   const [selectedTool, setSelectedTool] = useState(null)
   const [toolGeneratorOpen, setToolGeneratorOpen] = useState(false)
   const [generatedTools, setGeneratedTools] = useStoredState('wh-generated-geography-tools', [])
@@ -133,7 +158,7 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
   const pageAnnotations = useRef(new Map())
   const annotationDirty = useRef(false)
   const materials = state.materials || []
-  const material = materials.find(material => material.id === state.materialId && (material.type === 'application/pdf' || /\.pdf$/i.test(material.name)))
+  const material = materials.find(material => material.id === state.materialId && isPresentation(material))
   const materialPage = getMaterialPage(state, material?.id)
   useEffect(() => {
     const context = pptCanvasRef.current?.getContext('2d')
@@ -190,11 +215,16 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
     if (agentText) setMessages(m => [...m, { from: 'agent', text: agentText, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }])
   }
 
-  const startClass = () => {
+  const startClass = async () => {
+    if (startingClass) return
+    setStartingClass(true)
+    try {
+    const savedMaterial = await presentationRef.current?.saveIfDirty()
     setPanel(null)
     setSelectedTool(null)
     setTeacherPage('classroom')
-    broadcast({ classStartedAt: state.phase === 'class' ? state.classStartedAt : Date.now(), classEndedAt: null, ...(state.phase === 'after' ? { questionHistory: [], activityHistory: [], studentUtterances: [], discussionMinutes: {} } : {}), phase: 'class', activity: 'screen', questionRun: null, ...(state.phase === 'after' ? { slide: 0 } : {}) }, '课程已开始。全班预习完成率 100%，重点关注“碳酸溶蚀”的理解。')
+    broadcast({ ...(savedMaterial ? { materials: state.materials.map(item => item.id === savedMaterial.id ? savedMaterial : item) } : {}), classStartedAt: state.phase === 'class' ? state.classStartedAt : Date.now(), classEndedAt: null, ...(state.phase === 'after' ? { questionHistory: [], activityHistory: [], studentUtterances: [], discussionMinutes: {} } : {}), phase: 'class', activity: 'screen', questionRun: null, classroomReport: null, ...(state.phase === 'after' ? { slide: 0 } : {}) }, '课程已开始。全班预习完成率 100%，重点关注“碳酸溶蚀”的理解。')
+    } catch (error) { setSnapshotError(`课件保存失败，尚未开始上课：${error.message}`) } finally { setStartingClass(false) }
   }
   const endClass = () => {
     setPanel('report')
@@ -248,7 +278,7 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
     try {
       const stage = e.currentTarget
       const overlay = drawMode === 'board' ? boardCanvasRef.current : pptCanvasRef.current
-      const imageData = captureStageSnapshot(stage, overlay)
+      const imageData = await captureStageSnapshot(stage, overlay)
       const result = await generateSnapshotQuestion({ imageData, materialName: material?.name || '课堂白板', page: materialPage })
       startQuestion('snapshot', result.question)
     } catch (error) {
@@ -260,7 +290,7 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
   const prepareDiscussion = () => {
     setPanel(null)
     setQuestionVisible(true)
-    broadcast({ activity: 'discussion', questionRun: createDiscussion(students, state.discussionQuestion || defaultDiscussionQuestion) }, '讨论题已就绪，学生可以选择小组；请编辑问题后点击开始讨论。')
+    broadcast({ activity: 'discussion', questionRun: createDiscussion(students, state.publishedDiscussionQuestion || state.discussionQuestion || defaultDiscussionQuestion) }, '讨论题已就绪，学生可以选择小组；请编辑问题后点击开始讨论。')
   }
   const editDiscussion = question => updateState(current => {
     const run = current.questionRun
@@ -269,19 +299,20 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
   })
 
   return <div className="app-shell teacher-page">
-    <Topbar collapsible title={teacherPage === 'class' ? '班级管理' : '教师教学工作台'} onHome={onHome} actions={<>
-      <button className="ghost teacher-nav" onClick={() => { setSelectedTool(null); setTeacherPage(state.phase === 'class' ? 'classroom' : 'materials') }}><Icon name="book" /> 教学工作台</button>
+    <Topbar collapsible title={teacherPage === 'class' ? '班级管理' : teacherPage === 'classroom' ? '教师工作台' : teacherPage === 'reports' ? '分析报告' : '资源管理'} onHome={onHome} actions={<>
       <button className="ghost teacher-nav" onClick={() => setTeacherPage('class')}><Icon name="users" /> 班级管理</button>
-      <button className="ghost teacher-nav" onClick={() => setTeacherPage('materials')}><Icon name="folder" /> 资料管理</button>
+      <button className="ghost teacher-nav" onClick={() => setTeacherPage('materials')}><Icon name="folder" /> 资源管理</button>
       <GeographyToolMenu generatedNames={generatedTools} onGenerate={() => setToolGeneratorOpen(true)} onSelect={tool => { setTeacherPage('classroom'); setSelectedTool(tool) }} />
-      {state.phase !== 'class' ? <button className="primary" disabled={!material} onClick={startClass}>开始上课</button> : <><span className="live"><i />授课中</span><button className="danger" onClick={endClass}>结束上课</button></>}
-      <button className="avatar">范</button>
+      {state.phase !== 'class' ? <button className="primary" disabled={!material || startingClass} onClick={startClass}>{startingClass ? '正在准备课件…' : '开始上课'}</button> : <><span className="live"><i />授课中</span><button className="danger" onClick={endClass}>结束上课</button></>}
+      <UserMenu user={teacher} onLogout={onLogout} /><TeacherNotifications state={state} teacher={teacher} updateState={updateState} onOpen={(tab, sectionId) => { if (sectionId && findSection(library, sectionId)) setLibrary(current => ({ ...current, selectedSectionId: sectionId })); openReports(tab) }} />
     </>} />
+    {libraryError && <p className="teacher-save-error" role="alert">{libraryError}</p>}
+    <div className={`teacher-global-grid ${agentCollapsed ? 'agent-collapsed' : ''}`}><div className="teacher-main-content">
     <div hidden={teacherPage !== 'classroom'} className={`teacher-grid ${agentCollapsed ? 'agent-collapsed' : ''}`}>
       <section className="stage-card">
-        <div className="stage-status"><span><i /> {state.phase === 'before' ? '课前准备' : state.phase === 'after' ? '课堂已结束' : '课堂进行中'}</span><b>{selectedTool?.name || material?.name || '请上传课中课件'}</b></div>
+        <div className="stage-status"><span><i /> {state.phase === 'before' ? '课前准备' : state.phase === 'after' ? '课堂已结束' : '课堂进行中'}</span>{!isPowerPoint(material) || selectedTool ? <b>{selectedTool?.name || material?.name || '请上传课中课件'}</b> : null}<div className="ppt-header-slot" hidden={!isPowerPoint(material) || !!selectedTool} ref={setPresentationHeader} /></div>
         <div className={`slide ${dragTarget ? 'question-drop-target' : ''}`} onDragEnter={() => setDragTarget(true)} onDragOver={e => e.preventDefault()} onDragLeave={e => !e.currentTarget.contains(e.relatedTarget) && setDragTarget(false)} onDrop={dropQuestion}>
-          <UploadedPresentation material={material} page={materialPage} onTurn={(direction, total) => updateState(current => turnMaterialPage(current, material.id, direction, total))} showControls={!selectedTool && drawMode !== 'board'} />
+          <UploadedPresentation material={material} phase={state.phase} presentationRef={presentationRef} headerTarget={presentationHeader} onSavePresentation={saved => setLibrary(current => updateSection(current, state.sectionId, section => ({ ...section, materials: section.materials.map(item => item.id === saved.id ? saved : item) })))} onPageChange={(page, total) => updateState(current => setPresentationPage(current, material.id, page, total))} page={materialPage} onTurn={(direction, total) => updateState(current => turnMaterialPage(current, material.id, direction, total))} showControls={!selectedTool && drawMode !== 'board'} />
           {draggingQuestion && <div className="question-drop-layer" />} 
           <canvas ref={pptCanvasRef} width="1400" height="800" className={`canvas annotation ${drawMode === 'ppt' ? 'active' : ''}`} onPointerDown={beginDraw} onPointerMove={draw} onPointerUp={e => e.currentTarget.hasPointerCapture(e.pointerId) && e.currentTarget.releasePointerCapture(e.pointerId)} />
           <canvas ref={boardCanvasRef} width="1400" height="800" className={`canvas whiteboard ${drawMode === 'board' ? 'active' : ''}`} onPointerDown={beginDraw} onPointerMove={draw} onPointerUp={e => e.currentTarget.hasPointerCapture(e.pointerId) && e.currentTarget.releasePointerCapture(e.pointerId)} />
@@ -299,12 +330,17 @@ function Teacher({ onHome, state, updateState, students, setStudents, messages, 
           {['question', 'discussion'].includes(state.activity) && state.questionRun && !questionVisible && <button onClick={() => setQuestionVisible(true)}><Icon name="chat" />{state.activity === 'discussion' ? '查看讨论' : '查看提问'}</button>}
         </StageControls>
       </section>
+
+    </div>
+    {teacherPage === 'class' && <ClassManager students={students} setStudents={setStudents} onReports={() => openReports()} onStudent={setSelectedStudent} />}
+    {['materials', 'preview', 'discussion', 'review', 'pre-report'].includes(teacherPage) && <MaterialWorkspace state={state} students={students} updateState={updateState} library={library} setLibrary={setLibrary} view={teacherPage} onView={view => { setPanel(null); setTeacherPage(view) }} />}
+    {teacherPage === 'reports' && <AnalysisReports state={state} students={students} tab={reportTab} onTab={setReportTab} />}
+    </div>
       <Agent messages={messages} input={input} setInput={setInput} send={send} onClear={() => { setMessagesClearedAt(Date.now()); setMessages([]) }} onReport={() => setPanel('report')} collapsed={agentCollapsed} onToggle={() => setAgentCollapsed(value => !value)} />
     </div>
-    {teacherPage === 'class' && <ClassManager students={students} setStudents={setStudents} />}
-    {['materials', 'preview', 'discussion', 'review', 'pre-report'].includes(teacherPage) && <MaterialWorkspace state={state} students={students} updateState={updateState} view={teacherPage} onView={view => { setPanel(null); setTeacherPage(view) }} />}
+    {selectedStudent && <Modal title="学生学情分析" onClose={() => setSelectedStudent(null)}><StudentReport state={state} student={selectedStudent} /></Modal>}
     {toolGeneratorOpen && <GeographyToolGenerator onClose={() => setToolGeneratorOpen(false)} onGenerated={name => setGeneratedTools(current => [...new Set([...current, name])])} />}
-    {panel === 'report' && <Report state={state} messages={messages} onClose={() => setPanel(null)} />}
+    {panel === 'report' && <Report state={state} onGenerated={report => updateState(current => addReportNotification({ ...current, classroomReport: report }, 'quality', '课堂质量报告已生成'))} onClose={() => setPanel(null)} />}
   </div>
 }
 
@@ -319,7 +355,7 @@ function StageControls({ hideAsk = false, usingTool, phase, onAsk, onDiscussion,
 function GeographyToolMenu({ onSelect, onGenerate, generatedNames = [], tools = geographyTools }) {
   const visibleTools = tools.filter(tool => tool.name !== '喀斯特地貌' || generatedNames.includes(tool.name))
   return <details className="geography-tool-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus() } }}>
-    <summary className="ghost teacher-nav"><Icon name="folder" /> 地理工具集 <Icon name="down" /></summary>
+    <summary className="ghost teacher-nav"><Icon name="folder" /> 工具集 <Icon name="down" /></summary>
     <div className="geography-tool-options"><button className="geography-generate" onClick={event => { event.currentTarget.closest('details').open = false; onGenerate() }}><Icon name="spark" /> 智能生成</button>{visibleTools.map(tool => <button key={tool.name} onClick={event => { event.currentTarget.closest('details').open = false; onSelect(tool) }}>{tool.name}</button>)}{!visibleTools.length && <p>暂无 H5 工具</p>}</div>
   </details>
 }
@@ -422,7 +458,7 @@ function Agent({ messages, input, setInput, send, onClear, onReport, collapsed, 
   </aside>
 }
 
-function ClassManager({ students, setStudents }) {
+function ClassManager({ students, setStudents, onReports, onStudent }) {
   const [editing, setEditing] = useState(null)
   const [calling, setCalling] = useState(false)
   const [highlightedId, setHighlightedId] = useState(null)
@@ -450,19 +486,22 @@ function ClassManager({ students, setStudents }) {
     e.preventDefault(); const name = new FormData(e.currentTarget).get('name').trim(); if (!name) return
     setStudents(s => editing?.id ? s.map(x => x.id === editing.id ? { ...x, name } : x) : [...s, { id: nextId, name, score: 0, status: '待完成预习' }]); setEditing(null)
   }
-  return <main className="management-page"><section className="management-card"><h1>班级管理</h1><p className="modal-sub">六年级三班 · {students.length} 名学生</p><div className="student-cards">{students.map(s => <button key={s.id} className={highlightedId === s.id ? 'rollcall-highlight' : ''} onClick={() => { setCalling(false); setEditing(s) }}><span>{s.name.slice(-1)}</span><strong>{s.name}</strong><small>学号 {s.id}{s.group && ` · ${s.group}组`}</small><em>{s.status}</em></button>)}<button className="add-student" onClick={() => { setCalling(false); setEditing({}) }}><Icon name="plus" /><strong>添加学生</strong><small>学号自动生成</small></button></div>
-    {editing && <form className="inline-form" onSubmit={save}><label>学生姓名<input name="name" defaultValue={editing.name} autoFocus placeholder="请输入姓名" /></label><label>学号<input value={editing.id || nextId} disabled /></label><button className="primary">保存</button>{editing.id && <button type="button" className="danger-text" onClick={() => { setStudents(s => s.filter(x => x.id !== editing.id)); setEditing(null); if (highlightedId === editing.id) setHighlightedId(null) }}>删除学生</button>}</form>}
+  return <main className="management-page"><section className="management-card"><div className="management-heading"><h1>班级管理</h1><button className="primary" onClick={onReports}><Icon name="book" />分析报告</button></div><p className="modal-sub">六年级三班 · {students.length} 名学生</p><div className="student-cards class-student-grid">{students.map(s => <article key={s.id} className={`class-student-card ${highlightedId === s.id ? 'rollcall-highlight' : ''}`}><button type="button" className="student-card-edit" aria-label={`编辑${s.name}的信息`} title="编辑学生信息" onClick={() => { setCalling(false); setEditing(s) }}><Icon name="pen" /></button><button type="button" className="student-card-profile" onClick={() => { setCalling(false); onStudent(s) }}><span>{s.name.slice(-1)}</span><strong>{s.name}</strong><small>学号 {s.id}{s.group && ` · ${s.group}组`}</small><em>{s.status}</em></button></article>)}<button className="add-student" onClick={() => { setCalling(false); setEditing({}) }}><Icon name="plus" /><strong>添加学生</strong><small>学号自动生成</small></button></div>
+
+    {editing && <form key={editing.id || 'new-student'} className="inline-form" onSubmit={save}><label>学生姓名<input name="name" defaultValue={editing.name} autoFocus placeholder="请输入姓名" /></label><label>学号<input value={editing.id || nextId} disabled /></label><button className="primary">保存</button>{editing.id && <button type="button" className="danger-text" onClick={() => { setStudents(s => s.filter(x => x.id !== editing.id)); setEditing(null); if (highlightedId === editing.id) setHighlightedId(null) }}>删除学生</button>}<button type="button" className="ghost" onClick={() => setEditing(null)}>取消</button></form>}
   </section><button type="button" className={`rollcall-button ${calling ? 'rolling' : ''}`} disabled={!students.length} onClick={toggleCalling}><Icon name="users" />{calling ? '停止点名' : '点名回答'}</button></main>
 }
 
-function MaterialWorkspace({ state, students, updateState, view = 'materials', onView }) {
+function MaterialWorkspace({ state, students, updateState, library, setLibrary, view: requestedView = 'materials', onView }) {
+  const view = requestedView === 'materials' && state.learningPack ? 'preview' : requestedView
   const [uploading, setUploading] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState('')
-  const materials = state.materials || []
+  const section = findSection(library)
+  const materials = section?.materials || []
   const selected = state.analysisMaterialIds || []
-  const packSent = !!state.publishedLearningPack && JSON.stringify(state.learningPack) === JSON.stringify(state.publishedLearningPack)
-  const isPdf = material => material.type === 'application/pdf' || /\.pdf$/i.test(material.name)
+  const allConfirmed = resourcesConfirmed(state)
+  const packSent = allConfirmed && !!state.publishedLearningPack && JSON.stringify(state.learningPack) === JSON.stringify(state.publishedLearningPack) && JSON.stringify(state.discussions || []) === JSON.stringify(state.publishedDiscussions || []) && state.discussionQuestion === state.publishedDiscussionQuestion
   const parse = async () => {
     if (!selected.length || analyzing) return
     setAnalyzing(true); setError('')
@@ -470,100 +509,195 @@ function MaterialWorkspace({ state, students, updateState, view = 'materials', o
     try {
       const files = await getMaterialFiles(materials.filter(material => selected.includes(material.id)))
       result = await generateLearningPack(files)
-      const validExercise = exercise => exercise && typeof exercise.question === 'string' && Array.isArray(exercise.options) && exercise.options.length >= 2 && typeof exercise.answer === 'string'
-      if (!result?.preview?.exercises?.length || !result?.review?.exercises?.length || !result.preview.exercises.every(validExercise) || !result.review.exercises.every(validExercise)) throw new Error('AI 返回的学习包格式不完整')
-      pack = { preview: { ...result.preview, exercises: result.preview.exercises.map((exercise, index) => ({ ...exercise, id: exercise.id || `p${index + 1}`, approved: exercise.approved ?? false })) }, review: { ...result.review, exercises: result.review.exercises.map((exercise, index) => ({ ...exercise, id: exercise.id || `r${index + 1}`, approved: exercise.approved ?? false })) } }
+      if (![result?.preview, result?.review].every(content => content?.title && Array.isArray(content.tasks) && content.tasks.length >= 3)) throw new Error('AI 返回的学习任务不足三条')
+      pack = { preview: { ...result.preview, exercises: [] }, review: { ...result.review, exercises: [] } }
       discussionQuestion = result.discussionQuestion || defaultDiscussionQuestion
       sourceRefs = result.sourceRefs || []
       fallback = !!result.fallback
     } catch (reason) {
       setError(reason.message || 'AI 服务暂不可用，请重试。'); setAnalyzing(false); return
     }
-    updateState(current => ({ ...current, updatedAt: Date.now(), resourcesReady: true, learningPack: pack, questionBank: result.questionBank || [...pack.preview.exercises, ...pack.review.exercises], learningAnswers: simulateLearningAnswers(pack, students, current.learningAnswers), discussionQuestion, sourceRefs, sourceImages: result.sourceImages || [], aiFallback: fallback, parsedMaterialIds: selected }))
+    updateState(current => ({ ...current, updatedAt: Date.now(), resourcesReady: true, resourceConfirmations: {}, learningPack: pack, discussions: result.discussions || [], questionBank: [], learningAnswers: simulateLearningAnswers(pack, students, current.learningAnswers), discussionQuestion, sourceRefs, sourceImages: result.sourceImages || [], aiFallback: fallback, parsedMaterialIds: selected, reportNotifications: addReportNotification(current, 'pre', '课前报告已生成').reportNotifications }))
     setAnalyzing(false); onView('preview')
   }
   const regenerate = async () => {
     if (analyzing) return
     setAnalyzing(true); setError('')
+    updateState(current => updateResourceContent(current, view))
     try {
-      const result = await regenerateContent(view, view === 'discussion' ? { discussionQuestion: state.discussionQuestion } : state.learningPack[view], (state.sourceRefs || []).map(ref => ref.resourceId).filter(Boolean))
-      updateState(current => ({ ...current, updatedAt: Date.now(), aiFallback: current.aiFallback || !!result.fallback, ...(view === 'discussion' ? { discussionQuestion: result.discussionQuestion } : { learningPack: { ...current.learningPack, [view]: result } }) }))
+      const materialIds = (state.sourceRefs || []).map(ref => ref.resourceId).filter(Boolean)
+      if (view === 'discussion') {
+        const existing = state.discussions?.length ? state.discussions : [{ id: crypto.randomUUID(), question: state.discussionQuestion }]
+        const results = await Promise.all(existing.map(item => regenerateContent('discussion', item, materialIds)))
+        const discussions = results.map((result, index) => ({ ...result.discussion, id: existing[index].id }))
+        updateState(current => ({ ...current, updatedAt: Date.now(), discussions, discussionQuestion: discussions.map(item => item.question).join('\n\n'), aiFallback: current.aiFallback || results.some(result => result.fallback) }))
+      } else {
+        const result = await regenerateContent(view, state.learningPack[view], materialIds)
+        updateState(current => ({ ...current, updatedAt: Date.now(), aiFallback: current.aiFallback || !!result.fallback, learningPack: { ...current.learningPack, [view]: { ...result, exercises: current.learningPack[view].exercises } } }))
+      }
     } catch (reason) { setError(reason.message) } finally { setAnalyzing(false) }
   }
   const upload = async event => {
     const input = event.currentTarget, files = Array.from(input.files)
     if (!files.length) return
+    const sectionId = section.id
     setUploading(true); setError('')
     try {
       const uploaded = await saveMaterials(files)
-      updateState(current => ({ ...current, materials: [...(current.materials || []), ...uploaded], updatedAt: Date.now() }))
+      setLibrary(current => updateSection(current, sectionId, item => ({ ...item, materials: [...item.materials, ...uploaded] })))
     } catch (error) { setError(error.message || '资料保存失败，请重试。') }
     finally { input.value = ''; setUploading(false) }
   }
   const toggle = id => updateState(current => ({ ...current, updatedAt: Date.now(), analysisMaterialIds: current.analysisMaterialIds?.includes(id) ? current.analysisMaterialIds.filter(item => item !== id) : [...(current.analysisMaterialIds || []), id] }))
   return <main className="material-workspace"><section className="material-library">
-    <small className="workspace-eyebrow">课程文件夹</small><h1>准备今天的课堂</h1><p className="modal-sub">上传资料后，选择用于 AI 解析的文件。PDF 可设为课中展示课件。</p>
-    <div className="resource-actions"><label className={`upload-button ${uploading ? 'disabled' : ''}`}><Icon name="upload" />{uploading ? '正在上传…' : '上传资料到课程文件夹'}<input type="file" multiple disabled={uploading} accept=".ppt,.pptx,.pdf,.doc,.docx,.txt,.md,image/*" onChange={upload} /></label><a className="primary resource-link" href="https://feed-studio.stringx.top/admin/projects">资源生成</a>{state.learningPack && <button className="ghost" onClick={() => onView('pre-report')}>查看课前报告</button>}</div>
+    <CourseTree library={library} setLibrary={setLibrary} state={state} />
+    <LessonTitle key={section?.id} section={section} onSave={title => setLibrary(current => updateSection(current, current.selectedSectionId, item => ({ ...item, title, ...(item.name.startsWith('新建小节 ') ? { name: title } : {}) })))} />
+    <div className="resource-actions"><label className={`upload-button ${uploading ? 'disabled' : ''}`}><Icon name="upload" />{uploading ? '正在上传…' : '资源上传'}<input type="file" multiple disabled={uploading} accept=".ppt,.pptx,.pdf,.doc,.docx,.txt,.md,image/*" onChange={upload} /></label><a className="primary resource-link" href="https://feed-studio.stringx.top/admin/projects">资源生成</a>{state.learningPack && <><button className="ghost" disabled={!selected.length || uploading || analyzing} onClick={parse}><Icon name="spark" />解析所选资料</button></>}</div>
     {error && <p className="voice-error" role="alert">{error}</p>}
     <div className="course-files">{materials.map(material => <article key={material.id} className={selected.includes(material.id) ? 'selected' : ''}>
       <label className="analysis-check"><input type="checkbox" checked={selected.includes(material.id)} onChange={() => toggle(material.id)} /><span className="file-icon"><Icon name="folder" /></span><span><strong>{material.name}</strong><small>教师上传 · 点击选择用于解析</small></span></label>
-      {isPdf(material) ? <label className="material-select"><input type="radio" name="class-material" checked={state.materialId === material.id} onChange={() => updateState(current => ({ ...current, materialId: material.id, updatedAt: Date.now() }))} />课中展示</label> : <small className="analysis-only">仅用于解析</small>}
+      {isPresentation(material) ? <label className="material-select"><input type="radio" name="class-material" checked={state.materialId === material.id} onChange={() => updateState(current => ({ ...current, materialId: material.id, updatedAt: Date.now() }))} />课中展示</label> : <small className="analysis-only">仅用于解析</small>}
     </article>)}</div>
     {!materials.length && <div className="upload-empty"><Icon name="upload" /><h2>课程文件夹为空</h2><p>支持 PDF、Word、PPT、文本和图片资料。</p></div>}
   </section><section className="material-editor">
-    <nav className="material-tabs">{[['preview', '课前预习'], ['discussion', '课中讨论'], ['review', '课后复习']].map(([key, label]) => <button key={key} className={view === key ? 'active' : ''} disabled={!state.learningPack} onClick={() => onView(key)}>{label}</button>)}<div className="material-tab-actions"><button className={`publish-pack ${packSent ? 'sent' : ''}`} disabled={!state.learningPack || packSent || [state.learningPack?.preview, state.learningPack?.review].some(stage => stage?.exercises?.some(exercise => exercise.approved === false))} onClick={() => updateState(current => publishLearningPack(current))}><Icon name={packSent ? 'check' : 'send'} />{packSent ? '已发送' : '发送学生端（审核后）'}</button><button className="class-preview" disabled={!state.learningPack} onClick={() => onView('classroom')}><Icon name="screen" />课中预览</button></div></nav>
+    <nav className="material-tabs">{[['preview', '课前预习'], ['discussion', '课中讨论'], ['review', '课后复习']].map(([key, label]) => <button key={key} className={view === key ? 'active' : ''} disabled={!state.learningPack} onClick={() => onView(key)}>{label}{state.resourceConfirmations?.[key] && <span className="resource-confirmed"><Icon name="check" />已确认</span>}</button>)}<div className="material-tab-actions"><button className={`publish-pack ${packSent ? 'sent' : ''}`} disabled={!allConfirmed || packSent || analyzing} onClick={() => updateState(current => publishLearningPack(current))}><Icon name={packSent ? 'check' : 'send'} />{packSent ? '已发送' : '发送至学生端'}</button><button className="class-preview" disabled={!state.materialId} onClick={() => onView('classroom')}><Icon name="screen" />课中预览</button></div></nav>
     {state.aiFallback && state.learningPack && <p className="demo-content-note" role="status">演示内容：AI 生成超时，已使用预设学习包</p>}
-    {analyzing ? <AILoading /> : view === 'pre-report' ? <PreClassReport state={state} students={students} /> : !state.learningPack || view === 'materials' ? <div className="analysis-start"><Icon name="spark" /><h2>选择资料后生成教学内容</h2><p>将生成课前预习资料与测验、课中小组讨论题、课后复习资料与测验。</p><button className="primary" disabled={!selected.length || uploading || analyzing} onClick={parse}><Icon name="spark" /> {analyzing ? 'AI 正在解析资料…' : `AI 解析所选资料${selected.length ? `（${selected.length}）` : ''}`}</button></div> : view === 'discussion' ? <DiscussionContentEditor onRegenerate={regenerate} question={state.discussionQuestion} onSave={question => updateState(current => ({ ...current, discussionQuestion: question, updatedAt: Date.now() }))} /> : <LearningContentEditor onRegenerate={regenerate} key={view} stage={view} content={state.learningPack[view]} onSave={content => updateState(current => ({ ...current, learningPack: { ...current.learningPack, [view]: content }, updatedAt: Date.now() }))} />}
+    {analyzing ? <AILoading /> : view === 'pre-report' ? <PreClassReport state={state} students={students} /> : !state.learningPack || view === 'materials' ? <div className="analysis-start"><Icon name="spark" /><h2>选择资料后生成教学内容</h2><p>将依据所选资料生成至少三条课前预习任务、课中讨论及至少三条课后复习任务。测验题通过“生成题目”单独生成。</p><button className="primary" disabled={!selected.length || uploading || analyzing} onClick={parse}><Icon name="spark" /> {analyzing ? 'AI 正在解析资料…' : `AI 解析所选资料${selected.length ? `（${selected.length}）` : ''}`}</button></div> : view === 'discussion' ? <DiscussionContentEditor saved={!!state.resourceConfirmations?.discussion} onChange={content => updateState(current => updateResourceContent(current, 'discussion', content))} onRegenerate={regenerate} question={state.discussionQuestion} discussions={state.discussions} materialIds={(state.sourceRefs || []).map(ref => ref.resourceId)} onSave={content => updateState(current => updateResourceContent(current, 'discussion', content, true))} /> : <LearningContentEditor saved={!!state.resourceConfirmations?.[view]} onChange={content => updateState(current => updateResourceContent(current, view, content))} onRegenerate={regenerate} key={view} stage={view} content={state.learningPack[view]} onSave={content => updateState(current => updateResourceContent(current, view, content, true))} />}
   </section></main>
 }
 
-function PreClassReport({ state, students }) {
-  const content = state.learningPack?.preview
-  const rows = students.map(student => {
-    const answers = state.learningAnswers?.preview?.[student.id] || {}
-    const submitted = content?.exercises?.filter(exercise => !answers[exercise.id]?.simulated) || []
-    const correct = submitted.filter(exercise => answers[exercise.id]?.text === exercise.answer).length
-    return { student, submitted: submitted.length, correct }
-  })
-  const attempted = rows.filter(row => row.submitted)
-  const accuracy = attempted.length ? Math.round(attempted.reduce((sum, row) => sum + row.correct / content.exercises.length, 0) / attempted.length * 100) : null
-  return <section className="pre-report"><header><small>课前诊断</small><h1>课前预习结果分析</h1><p>基于学生真实提交记录，作为课堂目标与提问的起点。</p></header><div className="report-stats"><article><strong>{accuracy === null ? '暂无' : `${accuracy}%`}</strong><span>平均正确率</span></article><article><strong>{attempted.length}/{students.length}</strong><span>已提交学生</span></article><article><strong>{content?.exercises?.length || 0}</strong><span>预习题目</span></article></div><h2>分层关注</h2><ul><li>{accuracy === null ? '尚未收到真实提交，课堂开始时先完成快速诊断。' : accuracy < 80 ? '存在需要回收的基础概念问题，建议先用证据题和同伴互助进行补救。' : '基础概念掌握较好，可将课堂时间用于迁移、解释和探究。'}</li></ul><h2>学生明细</h2><div className="learning-students">{rows.map(row => <article key={row.student.id}><strong>{row.student.name}</strong><p>{row.submitted ? `${row.correct}/${content.exercises.length} 题正确` : '未提交'}</p></article>)}</div></section>
+function LessonTitle({ section, onSave }) {
+  const [draft, setDraft] = useState(section?.title || '')
+  const save = () => { const title = draft.trim() || section.name; setDraft(title); if (title !== section.title) onSave(title) }
+  return <div className="lesson-title"><label htmlFor="lesson-title">课堂标题 <Icon name="pen" /></label><input id="lesson-title" aria-label="课堂标题" value={draft} onChange={event => setDraft(event.target.value)} onBlur={save} onKeyDown={event => event.key === 'Enter' && event.currentTarget.blur()} /></div>
 }
 
-function LearningContentEditor({ stage, content, onSave, onRegenerate }) {
-  const [draft, setDraft] = useState(content), [saved, setSaved] = useState(false)
+function CourseTree({ library, setLibrary, state }) {
+  const [open, setOpen] = useState(true)
+  const selectedBook = library.books.find(book => book.chapters.some(chapter => chapter.sections.some(section => section.id === library.selectedSectionId)))
+  const selectedChapter = selectedBook?.chapters.find(chapter => chapter.sections.some(section => section.id === library.selectedSectionId))
+  const [openBooks, setOpenBooks] = useState(() => new Set([selectedBook?.id || 'book-0']))
+  const [openChapters, setOpenChapters] = useState(() => new Set([selectedChapter?.id || 'chapter-0-0']))
+  const toggle = (setter, id) => setter(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next })
+  const total = library.books.flatMap(book => book.chapters.flatMap(chapter => chapter.sections)).length
+  return <div className="course-tree"><button type="button" className="course-tree-heading" aria-expanded={open} onClick={() => setOpen(value => !value)}><Icon name="folder" />课程文件夹<Icon name="down" /></button>
+    {open && <div className="course-tree-list">{library.books.map(book => <div className="course-book" key={book.id}><button type="button" className="tree-node book-node" aria-expanded={openBooks.has(book.id)} onClick={() => toggle(setOpenBooks, book.id)}><Icon name="down" />{book.name}</button>
+      {openBooks.has(book.id) && book.chapters.map(chapter => <div className="course-chapter" key={chapter.id}><div className="chapter-row"><button type="button" className="tree-node chapter-node" aria-expanded={openChapters.has(chapter.id)} onClick={() => toggle(setOpenChapters, chapter.id)}><Icon name="down" />{chapter.name}<CourseProgress sections={chapter.sections} state={state} /></button><button type="button" className="tree-icon-button" title={`在${chapter.name}新增小节`} aria-label={`在${chapter.name}新增小节`} onClick={() => { setOpenChapters(current => new Set(current).add(chapter.id)); setLibrary(current => addSection(current, chapter.id)) }}><Icon name="plus" /></button></div>
+        {openChapters.has(chapter.id) && chapter.sections.map(section => <div className={`section-row ${section.id === library.selectedSectionId ? 'active' : ''}`} key={section.id}><button type="button" className="tree-node section-node" onClick={() => setLibrary(current => ({ ...current, selectedSectionId: section.id }))}>{section.name}<CourseProgress section={section} state={state} /></button><button type="button" className="tree-icon-button remove" title={`删除${section.name}`} aria-label={`删除${section.name}`} disabled={total <= 1} onClick={() => { if (window.confirm(`删除“${section.name}”文件夹及其资料记录？`)) setLibrary(current => removeSection(current, section.id)) }}><Icon name="close" /></button></div>)}
+      </div>)}</div>)}</div>}
+  </div>
+}
+
+function CourseProgress({ section, sections, state }) {
+  const statusOf = item => {
+    const published = item.id === state.sectionId ? state.publishedLearningPack : item.teachingState?.publishedLearningPack
+    return !item.materials?.length ? 'empty' : published ? 'sent' : 'pending'
+  }
+  const statuses = (sections || [section]).map(statusOf)
+  const status = statuses.every(value => value === 'empty') ? 'empty' : statuses.every(value => value === 'sent') ? 'sent' : 'pending'
+  const label = { empty: '无资源', pending: '有资源，未全部发送到学生端', sent: '已发送到学生端' }[status]
+  return <span className={`course-progress ${status}`} role="img" aria-label={label} title={label} />
+}
+
+function QuestionImages({ exercise }) {
+  return <>{exercise.context && <p className="question-context">{exercise.context}</p>}{exercise.images?.length > 0 && <div className="question-images">{exercise.images.map((src, index) => <img key={src} src={src} alt={`第 ${exercise.number || ''} 题原图 ${index + 1}`} loading="lazy" />)}</div>}</>
+}
+
+function QuestionGenerator({ stage, onGenerate, onClose }) {
+  const [bank, setBank] = useState(null), [error, setError] = useState(''), [uploadingBank, setUploadingBank] = useState(false)
+  const [banks, setBanks] = useStoredState('wh-question-banks', [])
+  const [difficulty, setDifficulty] = useState('all'), [types, setTypes] = useState(['single', 'fill', 'comprehensive']), [count, setCount] = useState(3)
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/question-bank/geography.json', { signal: controller.signal }).then(response => { if (!response.ok) throw new Error('题库读取失败'); return response.json() }).then(setBank).catch(reason => { if (!controller.signal.aborted) setError(reason.message) })
+    return () => controller.abort()
+  }, [])
+  const uploadBank = async event => {
+    const input = event.currentTarget, file = input.files?.[0]
+    if (!file) return
+    setUploadingBank(true); setError('')
+    try {
+      const body = new FormData(); body.append('file', file)
+      const response = await fetch('/api/question-banks/upload', { method: 'POST', body })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.detail || '题库解析失败')
+      setBanks(current => [...current, result]); setBank(result)
+    } catch (reason) { setError(reason.message) } finally { setUploadingBank(false); input.value = '' }
+  }
+  const available = bank ? matchingQuestions(bank, { difficulty, types }).length : 0
+  return <Modal title="生成题目" onClose={onClose}><div className="question-generator">
+    <label>选择题库<select disabled={!bank || uploadingBank} value={bank?.id || ''} onChange={event => { const selected = banks.find(item => item.id === event.target.value); if (selected) setBank(selected); else fetch('/question-bank/geography.json').then(response => response.json()).then(setBank).catch(reason => setError(reason.message)) }}><option value="geo-20261008">2026年10月08日地理作业</option>{banks.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <div className="editor-actions"><label className={`upload-button ${uploadingBank ? 'disabled' : ''}`}><Icon name="upload" />{uploadingBank ? '正在解析题库…' : '上传题库'}<input type="file" accept=".json,.docx,.pdf,.pptx,.txt,.md" disabled={uploadingBank} onChange={uploadBank} /></label><a className="primary resource-link" href="https://feed-studio.stringx.top/" target="_blank" rel="noreferrer">AI资源生成</a></div>
+    <label>题目数量<input type="number" min="1" max={available || 1} value={count} onChange={event => setCount(Number(event.target.value))} /></label>
+    <label>题目难度<select value={difficulty} onChange={event => setDifficulty(event.target.value)}><option value="all">不限难度</option><option value="easy">简单（系数 ≥ 0.75）</option><option value="medium">中等（0.55 ≤ 系数 ＜ 0.75）</option><option value="hard">困难（系数 ＜ 0.55）</option></select></label>
+    <fieldset className="question-type-options"><legend>题目类型（可多选）</legend>{[['single', '单选题'], ['fill', '填空题'], ['comprehensive', '综合题']].map(([type, label]) => <label key={type}><input type="checkbox" checked={types.includes(type)} onChange={event => setTypes(current => event.target.checked ? [...current, type] : current.filter(item => item !== type))} />{label}</label>)}</fieldset>
+    <p>符合条件且含原图的题目：{available} 道。生成后替换当前测验，保留原题答案与解析。点击保存后可发送学生端。</p>
+    {error && <p className="voice-error" role="alert">{error}</p>}
+    <button type="button" className="primary" disabled={uploadingBank || !bank || !available || !Number.isInteger(count) || count < 1 || count > available} onClick={() => { try { onGenerate(composeQuestions(bank, { difficulty, types }, count, stage)); onClose() } catch (reason) { setError(reason.message) } }}>生成题目</button>
+  </div></Modal>
+}
+
+function PreClassReport({ state, students }) {
+  return <section className="pre-report"><PreLearningReport state={state} students={students} /></section>
+}
+
+function LearningContentEditor({ saved, stage, content, onSave, onChange, onRegenerate }) {
+  const [draft, setDraftState] = useState(content), [generating, setGenerating] = useState(false)
+  const setDraft = change => {
+    const next = typeof change === 'function' ? change(draft) : change
+    setDraftState(next); onChange(next)
+  }
   useEffect(() => {
     const incoming = JSON.stringify(content)
-    if (incoming !== JSON.stringify(draft)) { setDraft(content); setSaved(false) }
+    if (incoming !== JSON.stringify(draft)) setDraftState(content)
   }, [content])
   const updateExercise = (index, patch) => setDraft(current => ({ ...current, exercises: current.exercises.map((exercise, i) => i === index ? { ...exercise, ...patch } : exercise) }))
   const updateOption = (exerciseIndex, optionIndex, value) => setDraft(current => ({ ...current, exercises: current.exercises.map((exercise, i) => i === exerciseIndex ? { ...exercise, options: exercise.options.map((option, j) => j === optionIndex ? value : option) } : exercise) }))
   const addExercise = () => {
-    setSaved(false)
     setDraft(current => ({ ...current, exercises: [...current.exercises, { id: `${stage}-${Date.now()}`, question: '', options: ['', '', ''], answer: '' }] }))
   }
-  return <form className="content-editor" onSubmit={event => { event.preventDefault(); onSave(draft); setSaved(true) }}>
-    <header><div><small>{stage === 'preview' ? '课前学习材料' : '课后巩固材料'}</small><h2>{draft.title}资料 + 测验</h2></div><div className="editor-actions"><button className="primary">{saved ? '已保存 ✓' : '保存修改'}</button><button type="button" className="ghost" onClick={onRegenerate}>重新生成</button></div></header>
-    <label>资料标题<input required value={draft.title} onChange={event => { setSaved(false); setDraft(current => ({ ...current, title: event.target.value })) }} /></label>
-    <label>学习任务<textarea required value={draft.task} onChange={event => { setSaved(false); setDraft(current => ({ ...current, task: event.target.value })) }} /></label>
-    <div className="exercise-heading"><h3>测验题目</h3><button type="button" className="ghost add-exercise" onClick={addExercise}><Icon name="plus" /> 新增题目</button></div>
+  return <form className="content-editor" onSubmit={event => { event.preventDefault(); if (draft.task.split(/\n/).filter(line => line.trim()).length < 3) { event.currentTarget.querySelector('textarea').setCustomValidity('学习任务至少三条，每行一条'); event.currentTarget.reportValidity(); return } onSave({ ...draft, tasks: draft.task.split(/\n/).map(line => line.replace(/^\s*\d+[.、．]\s*/, '').trim()).filter(Boolean) }) }}>
+    <header><div><small>{stage === 'preview' ? '课前学习材料' : '课后巩固材料'}</small><h2>{draft.title}资料 + 测验</h2></div><div className="editor-actions"><button className="primary" disabled={saved}>{saved ? '已保存' : '保存'}</button><button type="button" className="ghost" onClick={onRegenerate}>重新生成</button></div></header>
+    <label>资料标题<input required value={draft.title} onChange={event => { setDraft(current => ({ ...current, title: event.target.value })) }} /></label>
+    <label>学习任务（至少三条，每行一条）<textarea required value={draft.task} onChange={event => { event.target.setCustomValidity(''); setDraft(current => ({ ...current, task: event.target.value })) }} /></label>
+    <div className="exercise-heading"><h3>测验题目</h3><button type="button" className="ghost" onClick={() => setGenerating(true)}><Icon name="spark" /> 生成题目</button><button type="button" className="ghost add-exercise" onClick={addExercise}><Icon name="plus" /> 新增题目</button></div>
     {draft.exercises.map((exercise, index) => <fieldset key={exercise.id}><legend>第 {index + 1} 题</legend>
-      <label>题目<input required value={exercise.question} onChange={event => { setSaved(false); updateExercise(index, { question: event.target.value }) }} /></label>
-      <div className="option-inputs"><span>选项</span>{exercise.options.map((option, optionIndex) => <label key={optionIndex}>选项 {optionIndex + 1}<input required value={option} onChange={event => { setSaved(false); updateOption(index, optionIndex, event.target.value) }} /></label>)}</div>
-      <label>参考答案<input required value={exercise.answer} onChange={event => { setSaved(false); updateExercise(index, { answer: event.target.value }) }} /></label><label className="approval-check"><input type="checkbox" checked={exercise.approved !== false} onChange={event => updateExercise(index, { approved: event.target.checked })} /> 教师已审核并加入题库</label>
+      <QuestionImages exercise={exercise} /><label>题目<textarea required value={exercise.question} onChange={event => { updateExercise(index, { question: event.target.value }) }} /></label>
+      <div className="option-inputs"><span>{exercise.type && exercise.type !== 'single' ? '题内选项' : '选项'}</span>{exercise.options.map((option, optionIndex) => <label key={optionIndex}>选项 {optionIndex + 1}<input required value={option} onChange={event => { updateOption(index, optionIndex, event.target.value) }} /></label>)}</div>
+      <label>参考答案<textarea required value={exercise.answer} onChange={event => { updateExercise(index, { answer: event.target.value }) }} /></label>{exercise.explanation && <details className="question-explanation"><summary>答案解析 · 难度系数 {exercise.difficultyCoefficient}</summary><p>{exercise.explanation}</p></details>}
     </fieldset>)}
+    {generating && <QuestionGenerator stage={stage} onClose={() => setGenerating(false)} onGenerate={exercises => { setDraft(current => ({ ...current, exercises })) }} />}
   </form>
 }
 
-function DiscussionContentEditor({ question, onSave, onRegenerate }) {
-  const [draft, setDraft] = useState(question), [saved, setSaved] = useState(false)
-  useEffect(() => { setDraft(question); setSaved(false) }, [question])
-  return <form className="content-editor discussion-content-editor" onSubmit={event => { event.preventDefault(); onSave(draft.trim()); setSaved(true) }}><header><div><small>课中互动</small><h2>小组讨论题目</h2></div><div className="editor-actions"><button className="primary" disabled={!draft.trim()}>{saved ? '已保存 ✓' : '保存修改'}</button><button type="button" className="ghost" onClick={onRegenerate}>重新生成</button></div></header><label>讨论问题<textarea value={draft} onChange={event => { setDraft(event.target.value); setSaved(false) }} /></label><p>开始小组讨论时将使用这里保存的问题，教师仍可在课堂中再次调整。</p></form>
+function DiscussionContentEditor({ saved, question, discussions, materialIds, onSave, onChange, onRegenerate }) {
+  const initial = () => discussions?.length ? discussions : [{ id: 'legacy-discussion', question: question || '', analysis: '', goal: '' }]
+  const [draft, setDraftState] = useState(initial), [busyId, setBusyId] = useState(null), [error, setError] = useState('')
+  const setDraft = change => {
+    const next = typeof change === 'function' ? change(draft) : change
+    setDraftState(next); onChange(next)
+  }
+  useEffect(() => { setDraftState(initial()) }, [question, discussions])
+  const update = (id, patch) => { setDraft(current => current.map(item => item.id === id ? { ...item, ...patch } : item)) }
+  const generate = async item => {
+    setBusyId(item.id); setError(''); onChange(draft)
+    try {
+      const result = await regenerateContent('discussion', item, materialIds)
+      update(item.id, result.discussion)
+    } catch (reason) { setError(reason.message) } finally { setBusyId(null) }
+  }
+  return <form className="content-editor discussion-content-editor" onSubmit={event => { event.preventDefault(); onSave(draft) }}>
+    <header><div><small>课中互动</small><h2>小组讨论题目</h2></div><div className="editor-actions"><button className="primary" disabled={saved || !!busyId || draft.some(item => !item.question.trim() || !item.analysis.trim() || !item.goal.trim())}>{saved ? '已保存' : '保存'}</button><button type="button" className="ghost" disabled={!!busyId} onClick={onRegenerate}>重新生成</button><button type="button" className="ghost" onClick={() => { setDraft(current => [...current, { id: crypto.randomUUID(), question: '', analysis: '', goal: '' }]) }}><Icon name="plus" /> 新建讨论题目</button></div></header>
+    {error && <p className="voice-error" role="alert">{error}</p>}
+    {draft.map((item, index) => <fieldset key={item.id}><legend>讨论题 {index + 1}</legend><label>问题<div className="discussion-input"><textarea required value={item.question} placeholder="输入讨论方向，或点击 AI 生成，基于所选资源生成讨论题" onChange={event => update(item.id, { question: event.target.value })} /><button type="button" className="ghost discussion-ai-button" disabled={!!busyId} onClick={() => generate(item)}><Icon name="spark" />{busyId === item.id ? '正在生成…' : 'AI生成'}</button></div></label><label>解析<textarea required value={item.analysis} onChange={event => update(item.id, { analysis: event.target.value })} /></label><label>讨论目标<textarea required value={item.goal} onChange={event => update(item.id, { goal: event.target.value })} /></label>{draft.length > 1 && <button type="button" className="ghost" disabled={!!busyId} onClick={() => { setDraft(current => current.filter(other => other.id !== item.id)) }}>删除讨论题</button>}</fieldset>)}
+    <p>保存后，课堂小组讨论将使用这些问题。</p>
+  </form>
 }
 
-function UploadedPresentation({ material, page = 1, onTurn, showControls = true }) {
-  const asset = useMaterial(material?.id)
+function UploadedPresentation({ material, page = 1, phase = 'before', onTurn, onPageChange, onSavePresentation, presentationRef, headerTarget, showControls = true }) {
+  const asset = useMaterial(material?.id, material?.revision)
   if (!material) return <div className="presentation-empty"><h2>等待教师上传课中展示资料</h2><p>教师原始课件将在这里展示，不自动生成 PPT。</p></div>
+  if (isPowerPoint(material)) return <React.Suspense fallback={<div className="presentation-empty">正在加载 PPT 播放器…</div>}><PowerPointPresentation ref={presentationRef} key={material.id} material={material} phase={phase} page={page} editable={!!onTurn} headerTarget={headerTarget} showControls={showControls} onPageChange={onPageChange} onSave={onSavePresentation} /></React.Suspense>
   if (asset.error) return <div className="presentation-empty"><h2>{material.name}</h2><p role="alert">{asset.error}</p></div>
   if (!asset.url) return <div className="presentation-empty">正在读取原始课件…</div>
   if (material.type?.startsWith('image/')) return <img className="uploaded-image" src={asset.url} alt={material.name} />
@@ -646,11 +780,11 @@ function LearningExercises({ stage, state, student, updateState }) {
     finally { setAnalyzing(false) }
   }
   if (!content) return <div className="task-content"><h1>等待教师发送学习资料</h1><p>教师发送后，{stage === 'preview' ? '课前预习' : '课后复习'}资料与测验会出现在这里。</p></div>
-  return <div className="learning-exercises"><small>{state.publishedLearningFallback ? '喀斯特地貌演示预设' : 'AI 基于课程资料生成'} · {content.title}</small><h1>{content.title}</h1><p>{content.task}</p><form onSubmit={submit}>{content.exercises.map((exercise, index) => <fieldset key={exercise.id}><legend>{index + 1}. {exercise.question}</legend>{exercise.options.map(option => <label key={option}><input type="radio" name={exercise.id} required value={option} checked={responses[exercise.id] === option} onChange={() => { setResponses(current => ({ ...current, [exercise.id]: option })); setSaved(false) }} />{option}</label>)}{submitted[exercise.id] && <small>上次回答：{submitted[exercise.id].text} · {submitted[exercise.id].text === exercise.answer ? '正确' : '待订正'}</small>}</fieldset>)}<button className="primary" disabled={analyzing || content.exercises.some(exercise => !responses[exercise.id])}>{analyzing ? 'AI 正在分析…' : saved ? '重新提交' : '提交习题'}</button>{saved && !analyzing && !analysisError && <p role="status">真实作答已提交，AI 分析显示在右侧当前对话下方。</p>}{analysisError && <p className="voice-error" role="alert">作答已保存，但{analysisError}</p>}</form></div>
+  return <div className="learning-exercises"><small>{state.publishedLearningFallback ? '喀斯特地貌演示预设' : 'AI 基于课程资料生成'} · {content.title}</small><h1>{content.title}</h1><p className="learning-task-text">{content.task}</p>{!content.exercises.length && <p>当前仅有学习任务，等待教师生成并发送测验题。</p>}<form onSubmit={submit}>{content.exercises.map((exercise, index) => <fieldset key={exercise.id}><legend>{index + 1}. {exercise.question}</legend><QuestionImages exercise={exercise} />{exercise.type && exercise.type !== 'single' && exercise.options.length > 0 && <p>{exercise.options.join('　')}</p>}{(!exercise.type || exercise.type === 'single') ? exercise.options.map(option => <label key={option}><input type="radio" name={exercise.id} required value={option} checked={responses[exercise.id] === option} onChange={() => { setResponses(current => ({ ...current, [exercise.id]: option })); setSaved(false) }} />{option}</label>) : <label>你的回答<textarea required value={responses[exercise.id] || ''} onChange={event => { setResponses(current => ({ ...current, [exercise.id]: event.target.value })); setSaved(false) }} /></label>}{submitted[exercise.id] && <small>上次回答：{submitted[exercise.id].text} · {submitted[exercise.id].text === exercise.answer ? '正确' : '待订正'}</small>}</fieldset>)}<button className="primary" disabled={analyzing || !content.exercises.length || content.exercises.some(exercise => !responses[exercise.id])}>{analyzing ? 'AI 正在分析…' : saved ? '重新提交' : '提交习题'}</button>{saved && !analyzing && !analysisError && <p role="status">真实作答已提交，AI 分析显示在右侧当前对话下方。</p>}{analysisError && <p className="voice-error" role="alert">作答已保存，但{analysisError}</p>}</form></div>
 }
 
-function Report({ state, onClose }) {
-  return <Modal title="课堂总结报告" onClose={onClose}><ClassroomReport state={state} /></Modal>
+function Report({ state, onGenerated, onClose }) {
+  return <Modal title="课堂总结报告" onClose={onClose}><ClassroomReport state={state} onGenerated={onGenerated} /></Modal>
 }
 
 function StudentLogin({ students, onLogin, onHome }) {
@@ -659,7 +793,7 @@ function StudentLogin({ students, onLogin, onHome }) {
   return <main className="login-page"><button className="back-home" onClick={onHome}><Icon name="back" /> 返回控制台</button><section className="login-card"><Brand /><div className="login-art"><span><Icon name="cap" /></span></div><h1>欢迎回到智慧课堂</h1><p>输入你的信息，开启今天的学习旅程</p><form onSubmit={submit}><label>姓名<input name="name" placeholder="例如：李奕贤" /></label><label>学号<input name="id" inputMode="numeric" placeholder="例如：08001" /></label>{error && <p className="form-error">{error}</p>}<button className="primary wide">进入课堂 <Icon name="next" /></button></form><small>演示账号：李奕贤 / 08001</small></section></main>
 }
 
-function Student({ student, onHome, state, updateState }) {
+function Student({ student, onHome, onLogout = onHome, state, updateState }) {
   const [tab, setTab] = useState(state.phase === 'after' ? 'review' : state.phase === 'before' ? 'preview' : 'class')
   const [answer, setAnswer] = useState('')
   const [sent, setSent] = useState(false)
@@ -672,13 +806,14 @@ function Student({ student, onHome, state, updateState }) {
     setShowNotifications(value => !value)
     if (!showNotifications && notifications.length) updateState(current => ({ ...current, learningNotificationReads: { ...current.learningNotificationReads, [student.id]: Math.max(...notifications.map(item => item.sentAt)) } }))
   }
-  return <div className="app-shell student-page"><Topbar title={`学生端 · ${student.name}`} onHome={onHome} actions={<><div className="student-notifications"><button className="notification-button" aria-label="学习资料通知" onClick={openNotifications}><Icon name="bell" />{unread && <i />}</button>{showNotifications && <div className="notification-panel"><strong>学习资料通知</strong>{notifications.length ? notifications.map(item => <button key={item.id} onClick={() => { setTab(item.stage); setShowNotifications(false) }}><b>{item.title}</b><small>{item.stage === 'preview' ? '课前预习' : '课后复习'} · {new Date(item.sentAt).toLocaleString('zh-CN')}</small></button>) : <p>暂无新消息</p>}</div>}</div><span className="student-tag">{student.id}</span><button className="avatar">{student.name.slice(-1)}</button></>} />
-    <nav className="student-tabs">{[['preview','课前预习'],['class','课堂互动'],['review','课后复习']].map(([id, label]) => <button className={tab === id ? 'active' : ''} onClick={() => setTab(id)} key={id}>{label}</button>)}</nav>
-    <div className="student-grid"><section className="activity-card"><div className="section-label">{tab === 'preview' ? '课前预习' : tab === 'review' ? '课后复习' : '课堂互动'}<span>{state.phase === 'class' ? '● 与教师端同步' : ''}</span></div>
+  return <div className="app-shell student-page"><Topbar title={`学生端 · ${student.name}`} onHome={onHome} actions={<><div className="student-notifications"><button className="notification-button" aria-label="学习资料通知" onClick={openNotifications}><Icon name="bell" />{unread && <i />}</button>{showNotifications && <div className="notification-panel"><strong>学习资料通知</strong>{notifications.length ? notifications.map(item => <button key={item.id} disabled={!studentStageAvailable(state.phase, item.stage)} onClick={() => { setTab(item.stage); setShowNotifications(false) }}><b>{item.title}</b><small>{item.stage === 'preview' ? '课前预习' : '课后复习'} · {new Date(item.sentAt).toLocaleString('zh-CN')}</small></button>) : <p>暂无新消息</p>}</div>}</div><UserMenu user={student} onLogout={onLogout} /></>} />
+    <nav className="student-tabs">{[['preview','课前预习'],['class','课堂互动'],['review','课后复习'],['growth','成长报告']].map(([id, label]) => <button className={tab === id ? 'active' : ''} disabled={id !== 'growth' && !studentStageAvailable(state.phase, id)} onClick={() => setTab(id)} key={id}>{label}</button>)}</nav>
+    <div className="student-grid"><section className="activity-card"><div className="section-label">{tab === 'growth' ? '成长报告' : tab === 'preview' ? '课前预习' : tab === 'review' ? '课后复习' : '课堂互动'}<span>{state.phase === 'class' ? '● 与教师端同步' : ''}</span></div>
+      {tab === 'growth' && <StudentReport state={state} student={student} />}
       {tab === 'preview' && <LearningExercises key="preview" stage="preview" state={state} student={student} updateState={updateState} />}
       {tab === 'class' && state.activity === 'discussion' && state.questionRun?.kind === 'discussion' ? <StudentDiscussion key={state.questionRun.id} run={state.questionRun} student={student} updateState={updateState} stateMinutes={state.discussionMinutes} /> : tab === 'class' && state.activity === 'question' && state.questionRun ? <StudentQuestion key={state.questionRun.id} run={state.questionRun} student={student} updateState={updateState} points={state.studentPoints?.[student.id] || 0} /> : tab === 'class' && <div className="task-content"><span className="pulse-ring" /><small>{activity.title}</small><h1>{activity.text}</h1><p>{state.activity === 'screen' ? '教师发起互动后，题目或小组任务会自动出现在这里' : '说出你的想法，学伴会帮你组织表达。'}</p>{state.activity !== 'screen' && <div className="answer-box"><textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="在这里写下你的答案…" /><button className="primary" onClick={() => answer.trim() && setSent(true)}>{sent ? '已提交 ✓' : '提交回答'}</button></div>}</div>}
       {tab === 'review' && <LearningExercises key="review" stage="review" state={state} student={student} updateState={updateState} />}
-    </section><StudyBuddy student={student} stage={tab} state={state} updateState={updateState} /></div>
+    </section><StudyBuddy student={student} stage={tab === 'growth' ? 'review' : tab} state={state} updateState={updateState} /></div>
   </div>
 }
 
@@ -785,13 +920,13 @@ function StudyBuddy({ student, stage, state, updateState }) {
 }
 
 function BigScreen({ onHome, state, updateState }) {
-  const material = state.materials?.find(material => material.id === state.materialId && (material.type === 'application/pdf' || /\.pdf$/i.test(material.name)))
+  const material = state.materials?.find(material => material.id === state.materialId && isPresentation(material))
   const stopQuestion = () => updateState(current => {
     const run = current.questionRun
     if (!run || !['answering', 'result'].includes(run.status)) return current
     return { ...current, updatedAt: Date.now(), questionRun: { ...run, status: 'analyzing', analysisError: null, answers: run.answers.map(x => ({ ...x, active: false })) } }
   })
-  return <main className="big-screen"><header><Brand compact /><div><i /> {state.phase === 'class' ? '课堂进行中' : state.phase === 'after' ? '课堂已结束' : '课前准备'}　<span>{material?.name}</span></div><button onClick={onHome}><Icon name="close" /></button></header>{['question', 'discussion'].includes(state.activity) && state.questionRun ? <ScreenQuestion run={state.questionRun} onStop={stopQuestion} /> : <section className="screen-presentation"><UploadedPresentation material={material} page={getMaterialPage(state, material?.id)} /></section>}</main>
+  return <main className="big-screen"><header><Brand compact /><div><i /> {state.phase === 'class' ? '课堂进行中' : state.phase === 'after' ? '课堂已结束' : '课前准备'}　<span>{material?.name}</span></div><button onClick={onHome}><Icon name="close" /></button></header>{['question', 'discussion'].includes(state.activity) && state.questionRun ? <ScreenQuestion run={state.questionRun} onStop={stopQuestion} /> : <section className="screen-presentation"><UploadedPresentation material={material} phase={state.phase} page={getMaterialPage(state, material?.id)} /></section>}</main>
 }
 
 function ScreenQuestion({ run, onStop }) {
@@ -808,6 +943,86 @@ function ScreenDiscussion({ run, onStop }) {
   if (run.status === 'analyzing') return <section className="screen-analysis"><span className="analysis-spinner" /><h1>小组回答分析中…</h1><p>正在整理各组观点与讨论总结</p></section>
   if (run.status === 'result') return <section className="screen-result screen-discussion"><small>小组讨论完成</small><h1>{run.question}</h1><DiscussionSummary run={run} /></section>
   return <section className="screen-answering"><div className="screen-glow" /><div className="answering-head"><div><small>小组讨论</small><h1>{run.status === 'selecting' ? '请选择小组' : '讨论进行中'}</h1></div>{run.status === 'answering' && <><div className="screen-countdown"><b>{seconds}</b><span>秒</span></div><button onClick={onStop}><Icon name="stop" /> 结束讨论</button></>}</div><h2>{run.question}</h2><div className="live-answers">{run.groups.map(group => { const answer = run.answers.find(answer => answer.id === group.id); return <article key={group.id}><div><span>{group.number}</span><p><b>{group.number}组 · {group.name}</b><small>小组长：{group.leaderName} · {answer?.active ? '正在录音' : run.status === 'selecting' ? `已进入 ${Object.values(run.members).filter(id => id === group.id).length} 人` : '麦克风关闭'}</small></p></div><blockquote>{run.status === 'selecting' ? '等待教师开始讨论…' : answer?.text || '等待本组回答…'}</blockquote></article> })}</div></section>
+}
+
+function TeacherLogin({ onLogin, onHome, error, busy }) {
+  const [username, setUsername] = useState(teacherAccounts[0].username)
+  const [password, setPassword] = useState('')
+  return <main className="login-page"><button className="back-home" onClick={onHome}><Icon name="back" /> 返回控制台</button><section className="login-card"><Brand /><div className="login-art"><span><Icon name="book" /></span></div><h1>教师登录</h1><form onSubmit={event => { event.preventDefault(); onLogin(username, password) }}><label>教师账号<select value={username} onChange={event => setUsername(event.target.value)}>{teacherAccounts.map(account => <option key={account.username} value={account.username}>{account.name}</option>)}</select></label><label>密码<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary wide" disabled={busy}>{busy ? '正在登录…' : '进入教师工作台'} <Icon name="next" /></button></form></section></main>
+}
+
+function TeacherGate(props) {
+  const [token, setToken] = useState(() => localStorage.getItem('wh-teacher-token') || '')
+  const [account, setAccount] = useState(null)
+  const [library, setLibraryState] = useState(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const saveQueue = useRef(Promise.resolve())
+  const previousSection = useRef(null)
+  const libraryHydrated = useRef(false)
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+    loadTeacherLibrary(token).then(data => {
+      if (cancelled) return
+      const cacheKey = `wh-teacher-pending-library-${data.teacher.username}`
+      let pending
+      try { pending = JSON.parse(localStorage.getItem(cacheKey)) } catch { /* Ignore invalid local cache. */ }
+      libraryHydrated.current = false
+      setAccount(data.teacher); setLibraryState(pending || data.library); setError('')
+      if (pending) saveQueue.current = saveQueue.current.catch(() => {}).then(() => saveTeacherLibrary(token, pending)).then(() => {
+        if (localStorage.getItem(cacheKey) === JSON.stringify(pending)) localStorage.removeItem(cacheKey)
+      }).catch(reason => setError(`课程内容保存失败：${reason.message}`))
+    }).catch(reason => {
+      if (!cancelled) { localStorage.removeItem('wh-teacher-token'); setToken(''); setError(reason.message) }
+    })
+    return () => { cancelled = true }
+  }, [token])
+  const saveLibrary = change => setLibraryState(current => {
+    const next = typeof change === 'function' ? change(current) : change
+    if (next === current) return current
+    const cacheKey = `wh-teacher-pending-library-${account.username}`
+    const serialized = JSON.stringify(next)
+    localStorage.setItem(cacheKey, serialized)
+    saveQueue.current = saveQueue.current.catch(() => {}).then(() => saveTeacherLibrary(token, next)).then(() => {
+      if (localStorage.getItem(cacheKey) === serialized) localStorage.removeItem(cacheKey)
+      setError('')
+    }).catch(reason => setError(`课程内容保存失败：${reason.message}`))
+    return next
+  })
+  useEffect(() => {
+    if (!libraryHydrated.current) return
+    const previous = props.state.teacherUsername === account?.username && props.state.sectionId === library?.selectedSectionId ? { username: account?.username, sectionId: props.state.sectionId, state: props.state } : previousSection.current
+    if (previous && previous.username === account?.username) {
+      const teachingState = Object.fromEntries(['classroomReport', 'learningPack', 'resourceConfirmations', 'publishedDiscussions', 'publishedDiscussionQuestion', 'publishedLearningPack', 'publishedLearningFallback', 'learningNotifications', 'resourcesReady', 'discussionQuestion', 'discussions', 'sourceRefs', 'sourceImages', 'questionBank', 'parsedMaterialIds', 'analysisMaterialIds', 'learningAnswers', 'learningFeedback', 'aiFallback'].map(key => [key, previous.state[key]]))
+      if (JSON.stringify(findSection(library, previous.sectionId)?.teachingState) !== JSON.stringify(teachingState)) saveLibrary(current => updateSection(current, previous.sectionId, section => ({ ...section, teachingState })))
+    }
+    previousSection.current = props.state.teacherUsername === account?.username ? { username: account?.username, sectionId: props.state.sectionId, state: props.state } : null
+  }, [props.state, account?.username])
+  useEffect(() => {
+    if (!library) return
+    const section = findSection(library)
+    if (!section) return
+    const restoring = !libraryHydrated.current
+    props.updateState(current => {
+      const materials = section.materials || []
+      const ids = new Set(materials.map(item => item.id))
+      if (!restoring && current.teacherUsername === account?.username && current.sectionId === section.id && JSON.stringify(current.materials || []) === JSON.stringify(materials) && current.lessonTitle === section.title) return current
+      const switched = current.teacherUsername !== account?.username || current.sectionId !== section.id
+      return { ...current, teacherUsername: account.username, sectionId: section.id, lessonTitle: section.title, materials, materialId: ids.has(current.materialId) && !switched ? current.materialId : null, analysisMaterialIds: (current.analysisMaterialIds || []).filter(id => ids.has(id)), ...(switched ? { classroomReport: null, learningPack: null, resourceConfirmations: {}, publishedDiscussions: null, publishedDiscussionQuestion: null, publishedLearningPack: null, resourcesReady: false, phase: 'before', activity: 'screen', questionRun: null, discussions: [], sourceRefs: [], sourceImages: [], questionBank: [], learningAnswers: {}, learningFeedback: {}, aiFallback: false, ...(section.teachingState || {}) } : restoring ? (section.teachingState || {}) : {}), updatedAt: Date.now() }
+    })
+    libraryHydrated.current = true
+  }, [account?.username, library?.selectedSectionId, JSON.stringify(findSection(library)?.materials || []), findSection(library)?.title])
+  const login = async (username, password) => {
+    setBusy(true); setError('')
+    try { const result = await loginTeacher(username, password); localStorage.setItem('wh-teacher-token', result.token); setToken(result.token) }
+    catch (reason) { setError(reason.message) }
+    finally { setBusy(false) }
+  }
+  const logout = () => { logoutTeacher(token).catch(console.error); localStorage.removeItem('wh-teacher-token'); setToken(''); setAccount(null); setLibraryState(null) }
+  if (!token || error && !library) return <TeacherLogin onLogin={login} onHome={props.onHome} error={error} busy={busy} />
+  if (!account || !library) return <main className="login-page">正在读取教师课程文件夹…</main>
+  return <Teacher {...props} teacher={account} library={library} setLibrary={saveLibrary} libraryError={error} onLogout={logout} />
 }
 
 function App() {
@@ -898,8 +1113,8 @@ function App() {
     location.assign(location.pathname)
   }
   const navigate = next => { setView(next); const url = next === 'console' ? location.pathname : `${location.pathname}?view=${next}`; history.replaceState({}, '', url) }
-  if (view === 'teacher') return <Teacher onHome={() => navigate('console')} state={state} updateState={updateState} students={students} setStudents={setStudents} messages={messages} setMessages={setMessages} messagesClearedAt={messagesClearedAt} setMessagesClearedAt={setMessagesClearedAt} />
-  if (view === 'student') return student ? <Student student={student} onHome={() => navigate('console')} state={state} updateState={updateState} /> : <StudentLogin students={students} onLogin={setStudent} onHome={() => navigate('console')} />
+  if (view === 'teacher') return <TeacherGate onHome={() => navigate('console')} state={state} updateState={updateState} students={students} setStudents={setStudents} messages={messages} setMessages={setMessages} messagesClearedAt={messagesClearedAt} setMessagesClearedAt={setMessagesClearedAt} />
+  if (view === 'student') return student ? <Student student={student} onLogout={() => setStudent(null)} onHome={() => navigate('console')} state={state} updateState={updateState} /> : <StudentLogin students={students} onLogin={setStudent} onHome={() => navigate('console')} />
   if (view === 'screen') return <BigScreen onHome={() => navigate('console')} state={state} updateState={updateState} />
   return <Console onEnter={navigate} onReset={resetDemo} />
 }

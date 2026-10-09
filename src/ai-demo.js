@@ -7,10 +7,16 @@ export function demoResult(path, input = {}) {
   const base = { fallback: true, fallbackReason: 'timeout', sourceRefs: [] }
   const pack = () => {
     const result = createLearningPack()
-    return { ...base, ...result, discussionQuestion }
+    for (const stage of ['preview', 'review']) {
+      result[stage].tasks = ['观察资料中的喀斯特地貌原图，记录地表与地下景观的差异。', '梳理水、二氧化碳和石灰岩之间的作用过程，绘制因果链。', '结合资料比较溶蚀与沉积，解释其对地貌和人类活动的影响。']
+      result[stage].task = result[stage].tasks.map((task, i) => `${i + 1}. ${task}`).join('\n')
+      result[stage].exercises = []
+    }
+    const discussion = { question: discussionQuestion, analysis: '雨水吸收二氧化碳后沿裂隙溶蚀石灰岩；含碳酸钙的水重新沉积形成石钟乳等景观。', goal: '结合原图说明溶蚀与沉积的条件、过程和结果，使用资料证据进行解释。' }
+    return { ...base, ...result, discussion, discussions: [{ ...discussion, id: 'demo-discussion' }], discussionQuestion }
   }
   if (path === '/api/resources') return pack()
-  if (path.endsWith('/regenerate')) return input.stage === 'discussion' ? { ...base, discussionQuestion } : { ...base, ...pack()[input.stage] }
+  if (path.endsWith('/regenerate')) return input.stage === 'discussion' ? { ...base, discussion: pack().discussion, discussionQuestion } : { ...base, ...pack()[input.stage] }
   if (path.endsWith('/snapshot-question')) return { ...base, question: discussionQuestion }
   if (path.endsWith('/chat')) return { ...base, answer: `${input.role === 'student' ? '先想一想：雨水中溶入了什么气体？它如何影响石灰岩？请用资料中的一条证据解释。' : `${conclusion}\n${suggestions.join('\n')}`}` }
   if (path.endsWith('/learning/analyze')) return { ...base, summary: conclusion, items: (input.content?.exercises || []).map(item => ({ question: item.question, response: input.responses?.[item.id] || '', correct: input.responses?.[item.id] === item.answer, guidance: '请回看形成条件与作用过程，区分岩石被溶解和物质重新沉积，并解释选择依据。' })) }

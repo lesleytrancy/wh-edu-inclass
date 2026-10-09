@@ -24,7 +24,7 @@ export async function request(path, options, timeoutMs = AI_TIMEOUT_MS) {
   } finally { clearTimeout(timer) }
 }
 
-export async function generateLearningPack(files, classroomId = 'demo-classroom', timeoutMs = AI_TIMEOUT_MS) {
+export async function generateLearningPack(files, classroomId = 'demo-classroom', timeoutMs = 120000) {
   const body = new FormData()
   body.append('classroom_id', classroomId)
   files.forEach(file => body.append('files', file, file.name))
@@ -76,7 +76,7 @@ export function generateClassroomReport(context) {
   return request('/api/agents/classroom/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ context }) }, 120000)
 }
 export function regenerateContent(stage, content, materialIds) {
-  return request('/api/agents/resources/regenerate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage, content, materialIds }) })
+  return request('/api/agents/resources/regenerate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage, content, materialIds }) }, 120000)
 }
 
 export function analyzeClassroomAnswers(run) {

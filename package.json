@@ -14,10 +14,18 @@
   "dependencies": {
     "@vitejs/plugin-react": "latest",
     "chart.js": "^4.5.1",
+    "fast-xml-parser": "^5.11.2",
+    "framer-motion": "^13.5.1",
+    "i18next": "^26.4.2",
+    "jspdf": "^4.2.1",
+    "jszip": "^3.10.2",
     "lucide-react": "^1.46.0",
     "pdfjs-dist": "^5.4.149",
+    "pptx-react-viewer": "^4.30.3",
     "react": "latest",
     "react-dom": "latest",
+    "react-i18next": "^17.0.16",
+    "react-icons": "^5.7.0",
     "three": "^0.186.1",
     "vite": "latest"
   }

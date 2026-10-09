@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback, publishLearningContent, publishLearningPack } from '../src/learning.js'
+import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback, publishLearningContent, publishLearningPack, updateResourceContent, resourcesConfirmed, studentStageAvailable } from '../src/learning.js'
 
 const learningPack = createLearningPack()
 const students = [{ id: '1' }, { id: '2' }, { id: '3' }]
@@ -12,7 +12,7 @@ assert.equal(published.publishedLearningPack.preview.title, '课前预习')
 assert.equal(published.learningNotifications[0].stage, 'preview')
 assert.notEqual(published.publishedLearningPack.preview, learningPack.preview)
 assert.equal(publishLearningContent(published, 'discussion', learningPack.preview), published)
-const publishedPack = publishLearningPack({ learningPack })
+const publishedPack = publishLearningPack({ learningPack, resourceConfirmations: { preview: true, discussion: true, review: true }, discussions: [{ question: '讨论', analysis: '解析', goal: '目标' }] })
 assert.equal(publishedPack.publishedLearningPack.preview.title, '课前预习')
 assert.equal(publishedPack.publishedLearningPack.review.title, '课后复习')
 assert.match(publishedPack.learningNotifications[0].title, /课前预习与课后复习/)
@@ -50,3 +50,30 @@ assert.equal(resubmitted.learningFeedback.preview['1'], undefined)
 assert.equal(reportLearningFeedback(resubmitted, 'preview', '1', feedback.id), resubmitted)
 const reviewed = submitLearningAnswers(resubmitted, 'review', '1', { r1: '溶蚀', r2: '溶蚀', r3: '条件—过程—结果' })
 assert.equal(reviewed.learningFeedback.review['1'], undefined)
+
+const unconfirmed = { learningPack, discussions: [{ question: '讨论', analysis: '解析', goal: '目标' }] }
+assert.equal(publishLearningPack(unconfirmed), unconfirmed)
+let confirmed = unconfirmed
+for (const stage of ['preview', 'discussion', 'review']) confirmed = updateResourceContent(confirmed, stage, undefined, true)
+assert.ok(resourcesConfirmed(confirmed))
+const sent = publishLearningPack(confirmed)
+assert.notEqual(sent.publishedDiscussions, confirmed.discussions)
+const changed = updateResourceContent(sent, 'review', { ...learningPack.review, title: '已修改' })
+assert.equal(changed.resourceConfirmations.review, false)
+assert.equal(changed.resourceConfirmations.preview, true)
+assert.equal(publishLearningPack(changed), changed)
+assert.equal(changed.publishedLearningPack.review.title, '课后复习')
+assert.equal(resourcesConfirmed(JSON.parse(JSON.stringify(confirmed))), true)
+for (const [phase, classAvailable, reviewAvailable] of [['before', false, false], ['class', true, false], ['after', true, true]]) {
+  assert.equal(studentStageAvailable(phase, 'preview'), true)
+  assert.equal(studentStageAvailable(phase, 'class'), classAvailable)
+  assert.equal(studentStageAvailable(phase, 'review'), reviewAvailable)
+}
+
+const draftWithTasks = { ...confirmed, learningPack: structuredClone(learningPack) }
+draftWithTasks.learningPack.preview.tasks = ['原任务']
+const publishedSnapshot = publishLearningPack(draftWithTasks)
+draftWithTasks.learningPack.preview.tasks[0] = '草稿修改'
+draftWithTasks.learningPack.preview.exercises[0].options[0] = '草稿选项'
+assert.equal(publishedSnapshot.publishedLearningPack.preview.tasks[0], '原任务')
+assert.equal(publishedSnapshot.publishedLearningPack.preview.exercises[0].options[0], learningPack.preview.exercises[0].options[0])

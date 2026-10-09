@@ -75,7 +75,7 @@ input, textarea { accent-color: var(--positive); }
 .agent-rail button { display: flex; flex-direction: column; align-items: center; gap: 15px; width: 100%; height: 100%; padding: 20px 8px; border: 0; border-radius: inherit; color: #202024; background: transparent; }
 .agent-rail span:last-child { writing-mode: vertical-rl; letter-spacing: 2px; font-size: 12px; }
 .management-page { padding: 28px; }
-.management-card { max-width: 1080px; margin: auto; padding: 28px; border: 0; border-radius: 26px; background: white; }
+.management-card { max-width: 1920px; margin: auto; padding: 28px; border: 0; border-radius: 26px; background: white; }
 .management-card h1 { margin-top: 0; }
 .teacher-question, .canvas-recorder { position: absolute; inset: 0; z-index: 9; width: 100%; max-height: none; overflow: auto; padding: clamp(20px, 4vw, 54px); border: 0; border-radius: inherit; color: var(--deep); background: #faf9ff; box-shadow: none; backdrop-filter: none; }
 .canvas-recorder { z-index: 10; }
@@ -231,6 +231,34 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .material-library, .material-editor { min-width: 0; background: #fff; }
 .material-library { padding: 28px 24px; border-right: 1px solid var(--line); }
 .material-library h1 { margin: 12px 0; font-size: 30px; }
+.teacher-name { font-size: 12px; font-weight: 700; white-space: nowrap; }
+.teacher-logout { white-space: nowrap; }
+.teacher-save-error { margin: 0; padding: 9px 28px; color: #9c3445; background: #fff0f2; font-size: 12px; }
+.login-card select { display: block; width: 100%; height: 40px; margin-top: 6px; padding: 0 11px; border: 1px solid #EEEEEF; border-radius: 8px; background: white; color: var(--ink); font: inherit; }
+.course-tree { margin-bottom: 24px; border: 1px solid #e7e9ee; border-radius: 8px; overflow: hidden; }
+.course-tree button { color: var(--ink); font: inherit; }
+.course-tree-heading { display: flex; align-items: center; gap: 9px; width: 100%; padding: 12px; border: 0; background: #f5f6f9; text-align: left; font-size: 13px !important; font-weight: 700 !important; }
+.course-tree-heading .icon:last-child { margin-left: auto; transition: transform .15s; }
+.course-tree-heading[aria-expanded=false] .icon:last-child { transform: rotate(-90deg); }
+.course-tree-list { max-height: min(440px, 55vh); overflow: auto; padding: 7px 5px 9px; }
+.tree-node { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 7px 6px; border: 0; background: transparent; text-align: left; line-height: 1.35; }
+.tree-node .icon { flex: none; font-size: 12px; }
+.tree-node[aria-expanded=false] .icon { transform: rotate(-90deg); }
+.book-node { width: 100%; font-size: 12px !important; font-weight: 700 !important; }
+.course-chapter { margin-left: 10px; }
+.chapter-row, .section-row { display: flex; align-items: center; min-width: 0; border-radius: 5px; }
+.chapter-node { flex: 1; font-size: 12px !important; font-weight: 600 !important; }
+.section-row { margin-left: 20px; }
+.section-row.active { background: #edf3ff; }
+.section-node { flex: 1; font-size: 11px !important; }
+.tree-icon-button { display: grid; flex: none; place-items: center; width: 25px; height: 25px; padding: 0; border: 0; border-radius: 4px; background: transparent; }
+.tree-icon-button:hover, .tree-icon-button:focus-visible { background: #dfe9ff; }
+.tree-icon-button.remove:hover { color: #bc4051; background: #fff0f2; }
+.tree-icon-button:disabled { opacity: .35; }
+.lesson-title { margin-bottom: 15px; }
+.lesson-title label { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; color: #666b78; font-size: 11px; font-weight: 700; }
+.lesson-title input { width: 100%; min-height: 42px; padding: 4px 0; border: 0; border-bottom: 1px solid #d7dbe4; border-radius: 0; outline: none; color: var(--ink); background: transparent; font-size: 22px; font-weight: 700; }
+.lesson-title input:focus { border-bottom-color: #527cff; }
 .material-library > .upload-button { width: max-content; margin: 24px 0 18px; }
 .course-files { display: grid; gap: 8px; }
 .course-files article { display: flex; align-items: center; min-height: 68px; padding: 9px 12px; border: 1px solid #eeeef3; border-radius: 12px; background: #fff; }
@@ -300,3 +328,115 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .student-cards > button.rollcall-highlight { border: 2px solid #715acc; background: #eee9ff; box-shadow: 0 0 0 5px #bcaaff55, 0 12px 25px #715acc33; transform: scale(1.035); transition: background .08s, transform .08s; }
 .student-cards > button.rollcall-highlight > span { color: white; background: #715acc; }
 @media (max-width: 900px) { .teacher-page:has(> .topbar-reopen) .teacher-grid { height: auto; min-height: 100vh; } .management-page .rollcall-button { right: 14px; bottom: 14px; } }
+
+.material-library > .resource-actions { margin: 20px 0 16px; gap: 12px; }
+.course-files { margin-top: 16px; }
+.section-node { display: flex; align-items: center; gap: 8px; }
+.course-progress { display: inline-block; flex: 0 0 9px; width: 9px; height: 9px; border: 1.5px solid #9b9da6; border-radius: 50%; }
+.course-progress.pending { border-color: #e45353; background: #e45353; }
+.course-progress.sent { border-color: #50a66c; background: #50a66c; }
+.question-generator { display: grid; gap: 16px; }
+.question-generator label { display: grid; gap: 8px; }
+.question-generator input, .question-generator select { width: 100%; padding: 10px 12px; border: 1px solid #dddde6; border-radius: 8px; background: white; }
+.question-images { display: flex; flex-wrap: wrap; gap: 12px; margin: 14px 0; }
+.question-images img { max-width: 100%; max-height: 340px; object-fit: contain; border-radius: 8px; background: white; }
+.question-context, .question-explanation p { white-space: pre-wrap; line-height: 1.7; }
+.question-explanation { margin: 12px 0; color: var(--muted); }
+.exercise-heading { gap: 10px; flex-wrap: wrap; }
+.exercise-heading h3 { margin-right: auto; }
+.learning-exercises textarea { width: 100%; min-height: 100px; padding: 12px; border: 1px solid #dddde6; border-radius: 8px; }
+.chapter-node { display: flex; align-items: center; gap: 8px; }
+.discussion-input { position: relative; width: 100%; }
+.discussion-input textarea { padding-bottom: 54px; }
+.discussion-ai-button { position: absolute; right: 10px; bottom: 10px; }
+.question-generator .upload-button { display: flex; align-items: center; }
+.learning-task-text { white-space: pre-wrap; line-height: 1.8; }
+
+.resource-confirmed { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; color: #26834b; font-size: 11px; white-space: nowrap; }
+.resource-confirmed .icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; color: white; background: #2da562; font-size: 13px; }
+.student-tabs button:disabled { color: #999; background: #eee; border-color: #ddd; opacity: 1; box-shadow: none; }
+.material-tabs .publish-pack:disabled:not(.sent) { color: #999; background: #eee; border-color: #ddd; opacity: 1; }
+.question-type-options { display: flex; flex-wrap: wrap; gap: 12px 20px; margin: 0; padding: 12px; border: 1px solid #dddde6; border-radius: 8px; }
+.question-generator .question-type-options label { display: flex; align-items: center; gap: 8px; }
+.question-generator .question-type-options input { width: 16px; height: 16px; padding: 0; accent-color: #527cff; }
+
+/* Global assistant and report workspace */
+.teacher-global-grid { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; padding: 18px; align-items: start; }
+.teacher-global-grid.agent-collapsed { grid-template-columns: minmax(0, 1fr) 48px; }
+.teacher-main-content { min-width: 0; }
+.teacher-global-grid > .agent-card, .teacher-global-grid > .agent-rail { position: sticky; top: 18px; height: calc(100vh - 108px); }
+.teacher-global-grid .teacher-grid { display: block; padding: 0; height: calc(100vh - 108px); }
+.teacher-global-grid .teacher-grid[hidden] { display: none; }
+.teacher-global-grid .stage-card { height: 100%; }
+.teacher-global-grid .management-page { padding: 0; }
+.teacher-global-grid .material-workspace { padding: 0; }
+.teacher-global-grid .rollcall-button { position: static; margin-top: 18px; width: fit-content; }
+.management-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.student-manage-actions { margin-top: 24px; }
+.student-manage-actions select { margin-left: 12px; padding: 8px; border: 1px solid #e4e2eb; border-radius: 8px; }
+.user-menu { position: relative; }
+.user-menu summary { list-style: none; cursor: pointer; }
+.user-menu summary::-webkit-details-marker { display: none; }
+.user-popover { position: absolute; right: 0; top: calc(100% + 12px); width: 250px; padding: 20px; background: white; border: 1px solid #e9e6ef; border-radius: 18px; box-shadow: 0 12px 36px #211f3220; z-index: 60; }
+.user-popover p { color: var(--muted); font-size: 12px; }
+.top-actions .user-popover .ghost { display: inline-flex; }
+.analysis-workspace { display: grid; grid-template-columns: 155px minmax(0, 1fr); gap: 18px; }
+.report-sidebar { background: white; border-radius: 22px; padding: 18px 12px; align-self: start; }
+.report-sidebar h2 { font-size: 17px; padding-left: 10px; }
+.report-sidebar button { display: block; width: 100%; border: 0; background: transparent; color: var(--ink); padding: 14px 10px; border-radius: 12px; text-align: left; cursor: pointer; }
+.report-sidebar button.active { background: var(--lavender); font-weight: 700; }
+.analysis-content { min-width: 0; background: white; border-radius: 24px; padding: 26px; }
+.analysis-content h1, .student-analysis h1 { font-size: 25px; }
+.analysis-content p, .student-analysis p { line-height: 1.8; }
+.analysis-content .diagnostic-card { margin-top: 18px; }
+.sample-report-note { border: 1px solid #ead69d; background: #fff9e9; color: #866124; border-radius: 12px; padding: 12px 16px; font-size: 13px; }
+.student-analysis { padding: 22px; min-width: 0; }
+.metric-section { margin: 24px 0; }
+.metric-section h2 { font-size: 19px; }
+.metric-table-scroll { overflow-x: auto; }
+.metric-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.metric-table th, .metric-table td { padding: 14px 12px; text-align: left; border: 1px solid #e7e4ed; vertical-align: top; }
+.metric-table thead { background: #f7f5fb; }
+.metric-table tbody th { min-width: 155px; }
+.metric-table td:last-child { min-width: 95px; }
+.metric-table small { display: block; color: #946e32; margin-top: 5px; }
+.analysis-content .student-cards { grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); }
+@media (max-width: 1100px) { .teacher-global-grid { grid-template-columns: minmax(0, 1fr) 290px; gap: 12px; padding: 12px; } .analysis-workspace { grid-template-columns: 125px minmax(0, 1fr); } .analysis-content { padding: 18px; } }
+@media (max-width: 900px) { .teacher-global-grid { grid-template-columns: minmax(0, 1fr); } .teacher-global-grid.agent-collapsed { grid-template-columns: minmax(0, 1fr) 40px; } .teacher-global-grid > .agent-card { position: static; height: 520px; } .teacher-global-grid .teacher-grid { height: auto; } .teacher-global-grid .stage-card { min-height: 700px; } .analysis-workspace { grid-template-columns: minmax(0, 1fr); } .report-sidebar { display: flex; flex-wrap: wrap; gap: 4px; } .report-sidebar h2 { width: 100%; } .report-sidebar button { width: auto; padding: 10px; } .student-tabs { flex-wrap: wrap; } }
+.user-menu .avatar { display: grid; place-items: center; }
+.user-popover { color: var(--ink); }
+.topbar .user-popover .ghost { color: var(--ink); background: white; border-color: var(--line); }
+.metric-table { min-width: 500px; }
+.teacher-page:has(> .topbar-reopen) .teacher-global-grid > .agent-card,
+.teacher-page:has(> .topbar-reopen) .teacher-global-grid > .agent-rail { height: calc(100vh - 36px); }
+/* Compact class roster; editing remains separate from opening the learning report. */
+.management-page .class-student-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; }
+.class-student-card { position: relative; min-width: 0; border: 1px solid #eeedf4; border-radius: 13px; background: #fafaff; }
+.class-student-card .student-card-profile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; width: 100%; min-height: 130px; padding: 23px 4px 12px; border: 0; border-radius: inherit; background: transparent; }
+.student-card-profile > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--lavender); font-weight: 700; }
+.student-card-profile strong { font-size: 12px; }
+.student-card-profile small { font-size: 9px; white-space: nowrap; }
+.student-card-profile em { font-size: 9px; color: #80b558; font-style: normal; }
+.student-card-edit { position: absolute; z-index: 1; right: 5px; top: 5px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 7px; color: #726783; background: transparent; }
+.student-card-edit:hover, .student-card-edit:focus-visible { color: var(--ink); background: var(--lavender); }
+.management-page .class-student-grid > .add-student { min-height: 130px; padding: 10px 4px; font-size: 12px; }
+.management-page .inline-form { grid-template-columns: minmax(120px, 1fr) 100px auto auto auto; }
+@media (max-width: 900px) { .management-page .class-student-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .management-page .inline-form { grid-template-columns: 1fr; } }
+@media (max-width: 480px) { .management-page .class-student-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.class-student-card.rollcall-highlight { border: 2px solid #715acc; background: #eee9ff; box-shadow: 0 0 0 3px #bcaaff55; transform: scale(1.035); transition: background .08s, transform .08s; }
+.class-student-card.rollcall-highlight .student-card-profile > span { color: white; background: #715acc; }
+
+.pptx-browser-player { position: absolute; inset: 0; z-index: 0; isolation: isolate; display: flex; flex-direction: column; min-height: 0; color: var(--ink); background: #f4f3f7; }
+.ppt-header-slot { flex: 1; min-width: 0; margin-left: 16px; }
+.ppt-header-slot[hidden] { display: none; }
+.ppt-preview-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 0 0 8px; color: rgb(0, 0, 0); }
+.ppt-preview-actions button { min-height: 30px; padding: 0 12px; }
+.ppt-preview-actions > span { margin-right: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.pptx-viewer-host { position: relative; z-index: 0; isolation: isolate; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.pptx-viewer-host > [data-pptx-viewer] { height: 100%; }
+.ppt-loading { height: 100%; display: grid; place-items: center; color: var(--muted); }
+.ppt-error { margin: 0; padding: 12px 18px; color: #8e2e3d; background: #ffe9ed; font-size: 12px; }
+.ppt-page-controls { position: absolute; right: 12px; bottom: 12px; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 10px; background: #232130e8; color: white; }
+.ppt-page-controls button { min-height: 30px; padding: 4px 12px; border: 1px solid #ffffff35; border-radius: 8px; background: transparent; color: white; font-size: 12px; }
+.ppt-page-controls span { font-size: 12px; }
+.big-screen .screen-presentation { position: relative; }

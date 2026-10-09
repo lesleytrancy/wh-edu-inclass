@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { jsxModuleUrl } from './jsx-loader.js'
 import { readFile, readdir } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
@@ -16,19 +17,27 @@ let source = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8')
 const iconImport = source.match(/^import .* from 'lucide-react'$/m)[0].replace("'lucide-react'", JSON.stringify(lucideUrl))
 source = source.replace(/^import .*\n/gm, '').replace(/^createRoot\(document.*$/m, '')
 source = source.replace(/^const geographyTools = .*$/m, 'const geographyTools = []')
+source = source.replace(/^const PowerPointPresentation = .*$/m, "const PowerPointPresentation = () => React.createElement('div', null, '网页 PPT 播放器')")
 source = `${iconImport};
 import React, { useEffect, useMemo, useRef, useState } from ${JSON.stringify(reactUrl)};
 import { setQuestionAnswer } from ${JSON.stringify(new URL('../src/questions.js', import.meta.url).href)};
 import { useVoiceCapture } from ${JSON.stringify(new URL('../src/useVoiceCapture.js', import.meta.url).href)};
 import { createDiscussion, defaultDiscussionQuestion, joinDiscussion, startDiscussion, setGroupAnswer, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from ${JSON.stringify(new URL('../src/discussion.js', import.meta.url).href)};
-import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback, publishLearningContent, publishLearningPack } from ${JSON.stringify(new URL('../src/learning.js', import.meta.url).href)};
-import { saveMaterials, useMaterial, getMaterialPage, turnMaterialPage } from ${JSON.stringify(new URL('../src/materials.js', import.meta.url).href)};
+import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback, publishLearningContent, publishLearningPack, updateResourceContent, resourcesConfirmed, studentStageAvailable } from ${JSON.stringify(new URL('../src/learning.js', import.meta.url).href)};
+import { saveMaterials, useMaterial, getMaterialPage, turnMaterialPage, isPowerPoint, isPresentation } from ${JSON.stringify(new URL('../src/materials.js', import.meta.url).href)};
+import { teacherAccounts, findSection, updateSection, addSection, removeSection, loginTeacher, loadTeacherLibrary, saveTeacherLibrary, logoutTeacher } from ${JSON.stringify(new URL('../src/teacher-library.js', import.meta.url).href)};
+import { addReportNotification, reportNotifications } from ${JSON.stringify(new URL('../src/reports.js', import.meta.url).href)};
+import { setPresentationPage } from ${JSON.stringify(new URL('../src/pptx-state.js', import.meta.url).href)};
+import AnalysisReports, { StudentReport, PreLearningReport } from ${JSON.stringify(await jsxModuleUrl(new URL('../src/AnalysisReports.jsx', import.meta.url)))};
 ${source}
 export { ClassManager, Teacher, Student, StageControls, GeographyTools, GeographyToolMenu, TeacherQuestion, DiscussionSetup, StudentDiscussion, ScreenDiscussion, MaterialWorkspace, LearningOverview, LearningExercises, UploadedPresentation, StudyBuddy, QuestionRecorder, StudentQuestion, CanvasPagination, BigScreen };`
 const { code } = await transformWithOxc(source, 'main.jsx', { jsx: { runtime: 'classic' } })
 const components = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 const students = [{ id: '1', name: '组长甲' }, { id: '2', name: '组长乙' }, { id: '3', name: '组员' }]
-const render = (name, props) => renderToStaticMarkup(React.createElement(components[name], { onClose() {}, onStart() {}, onEdit() {}, onStop() {}, updateState() {}, ...props }))
+const render = (name, props = {}) => {
+  const library = { selectedSectionId: 'lesson', books: [{ id: 'book-0', name: '地理必修第一册（自然地理）', chapters: [{ id: 'chapter-0-0', name: '第一章 宇宙中的地球', sections: [{ id: 'lesson', name: '第一节 地球的宇宙环境', title: '第一节 地球的宇宙环境', materials: props.state?.materials || [] }] }] }] }
+  return renderToStaticMarkup(React.createElement(components[name], { onClose() {}, onStart() {}, onEdit() {}, onStop() {}, updateState() {}, teacher: { name: '地理老师-范佳琪' }, library, setLibrary() {}, ...props }))
+}
 let state = { questionRun: createDiscussion(students, '自定义讨论题', 100) }
 assert.match(render('DiscussionSetup', { run: state.questionRun }), /自定义讨论题/)
 assert.match(render('DiscussionSetup', { run: state.questionRun }), /语音替换问题/)
@@ -52,12 +61,16 @@ for (const name of ['TeacherQuestion', 'ScreenDiscussion']) {
 const learningPack = createLearningPack()
 const prepared = { phase: 'before', slide: 0, materials: [], learningPack, publishedLearningPack: learningPack, learningAnswers: simulateLearningAnswers(learningPack, students) }
 const materialWorkspace = render('MaterialWorkspace', { state: prepared, students })
-assert.match(materialWorkspace, /上传资料到课程文件夹/)
+assert.match(materialWorkspace, /资源上传/)
 assert.match(materialWorkspace, /课前预习/)
 assert.match(materialWorkspace, /课中讨论/)
 assert.match(materialWorkspace, /课后复习/)
+assert.match(materialWorkspace, /课前学习材料/)
+assert.doesNotMatch(materialWorkspace, /选择资料后生成教学内容/)
+assert.match(materialWorkspace, /class="active"[^>]*>课前预习/)
+
 const folderState = { ...prepared, publishedLearningPack: undefined, materials: [{ id: 'doc', name: '教案.docx', type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }, { id: 'pdf', name: '展示.pdf', type: 'application/pdf' }], analysisMaterialIds: ['doc'] }
-const folder = render('MaterialWorkspace', { state: folderState, students })
+const folder = render('MaterialWorkspace', { state: { ...folderState, learningPack: null }, students })
 assert.match(folder, /教案.docx/)
 assert.match(folder, /仅用于解析/)
 assert.equal((folder.match(/type="radio"/g) || []).length, 1)
@@ -66,21 +79,35 @@ const previewEditor = render('MaterialWorkspace', { state: folderState, students
 assert.match(previewEditor, /课前学习材料/)
 assert.match(previewEditor, /学习任务/)
 assert.match(previewEditor, /新增题目/)
+assert.match(previewEditor, /生成题目/)
+assert.doesNotMatch(previewEditor, /教师已审核并加入题库/)
+assert.match(folder, /course-progress pending/)
+assert.match(materialWorkspace, /course-progress empty/)
 assert.match(previewEditor, /选项 1/)
 assert.match(previewEditor, /选项 2/)
 assert.match(previewEditor, /选项 3/)
 assert.doesNotMatch(previewEditor, /用中文逗号分隔/)
-assert.match(previewEditor, /保存修改/)
+assert.match(previewEditor, /保存/)
 assert.match(previewEditor, /课中预览/)
-assert.match(previewEditor, /发送学生端/)
-assert.ok(previewEditor.indexOf('课后复习') < previewEditor.indexOf('发送学生端'))
-assert.ok(previewEditor.indexOf('发送学生端') < previewEditor.indexOf('课中预览'))
-const sentEditor = render('MaterialWorkspace', { state: { ...folderState, publishedLearningPack: learningPack }, students, view: 'preview' })
+assert.match(previewEditor, /发送至学生端/)
+assert.ok(previewEditor.indexOf('课后复习') < previewEditor.indexOf('发送至学生端'))
+assert.ok(previewEditor.indexOf('发送至学生端') < previewEditor.indexOf('课中预览'))
+const sentEditor = render('MaterialWorkspace', { state: { ...folderState, publishedLearningPack: learningPack, resourceConfirmations: { preview: true, discussion: true, review: true }, publishedDiscussions: [] }, students, view: 'preview' })
 assert.match(sentEditor, /已发送/)
+const restoredSentEditor = render('MaterialWorkspace', { state: { ...folderState, publishedLearningPack: learningPack, resourceConfirmations: { preview: true, discussion: true, review: true }, publishedDiscussions: [] }, students })
+assert.match(restoredSentEditor, /已发送/)
+assert.match(restoredSentEditor, /课前学习材料/)
+assert.equal((restoredSentEditor.match(/resource-confirmed/g) || []).length, 3)
+assert.doesNotMatch(restoredSentEditor, /选择资料后生成教学内容/)
+
 assert.match(render('MaterialWorkspace', { state: { ...folderState, aiFallback: true }, students, view: 'preview' }), /演示内容：AI 生成超时/)
 const discussionEditor = render('MaterialWorkspace', { state: { ...folderState, discussionQuestion: '可编辑讨论题' }, students, view: 'discussion' })
 assert.match(discussionEditor, /可编辑讨论题/)
-assert.match(discussionEditor, /保存修改/)
+assert.match(discussionEditor, /保存/)
+assert.match(discussionEditor, /新建讨论题目/)
+assert.match(discussionEditor, /AI生成/)
+assert.match(discussionEditor, /解析/)
+assert.match(discussionEditor, /讨论目标/)
 const notifiedStudent = render('Student', { student: students[0], state: { ...prepared, learningNotifications: [{ id: 'notice-1', stage: 'preview', title: '新预习已发布', sentAt: 10 }] } })
 assert.match(notifiedStudent, /学习资料通知/)
 assert.match(notifiedStudent, /<i><\/i><\/button><div class=\"notification-panel\"|<i><\/i><\/button><\/div>/)
@@ -94,17 +121,17 @@ for (const stage of ['preview', 'review']) {
   assert.match(render('LearningExercises', { stage, state: { ...prepared, publishedLearningFallback: true }, student: students[2] }), /喀斯特地貌演示预设/)
 }
 const teacher = render('Teacher', { state: prepared, students, messages: [], setMessages() {} })
-assert.doesNotMatch(teacher, /资源管理/)
+assert.match(teacher, /资源管理/)
 assert.match(teacher, /annotation-toggle/)
 assert.match(teacher, /aria-label="PPT 批注"/)
-assert.match(teacher, /地理工具集/)
+assert.match(teacher, /工具集/)
 assert.match(render('ClassManager', { students, setStudents() {} }), /点名回答/)
 assert.match(teacher, /收起头部工具栏/)
 const tools = (await readdir(new URL('../tools/', import.meta.url))).filter(name => name.endsWith('.html')).map(name => ({ name: name.replace(/\.html$/, ''), load: async () => '' }))
-assert.match(teacher, /资料管理/)
+assert.match(teacher, /资源管理/)
 assert.match(teacher, /返回课中/)
 assert.doesNotMatch(teacher, /返回资料入口/)
-assert.ok(teacher.indexOf('班级管理</button>') < teacher.indexOf('资料管理</button>'))
+assert.ok(teacher.indexOf('班级管理</button>') < teacher.indexOf('资源管理</button>'))
 const toolList = render('GeographyToolMenu', { tools, onSelect() {} })
 assert.match(toolList, /<details/)
 assert.match(toolList, /<summary/)
@@ -176,7 +203,7 @@ assert.match(firstPage, /disabled="" aria-label="上一页"/)
 assert.match(firstPage, /aria-label="下一页"/)
 assert.doesNotMatch(render('CanvasPagination', { page: 2, onTurn() {} }), /disabled/)
 const assetHook = 'data:text/javascript;base64,' + Buffer.from('export function useMaterial() { return { url: "blob:http://localhost/example", error: "" } }').toString('base64')
-const assetSource = source.replace(/import \{ saveMaterials, useMaterial, getMaterialPage, turnMaterialPage \} from [^;]+;/, `import { useMaterial } from ${JSON.stringify(assetHook)}; import { getMaterialPage, turnMaterialPage } from ${JSON.stringify(new URL('../src/materials.js', import.meta.url).href)};`)
+const assetSource = source.replace(/import \{ saveMaterials, useMaterial, getMaterialPage, turnMaterialPage, isPowerPoint, isPresentation \} from [^;]+;/, `import { useMaterial } from ${JSON.stringify(assetHook)}; import { getMaterialPage, turnMaterialPage, isPowerPoint, isPresentation } from ${JSON.stringify(new URL('../src/materials.js', import.meta.url).href)};`)
 const assetCode = (await transformWithOxc(assetSource, 'assets.jsx', { jsx: { runtime: 'classic' } })).code
 const assetComponents = await import(`data:text/javascript;base64,${Buffer.from(assetCode).toString('base64')}`)
 const pdf = { id: 'pdf', name: '课件.pdf', type: 'application/pdf' }

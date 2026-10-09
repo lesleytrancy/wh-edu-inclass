@@ -47,7 +47,7 @@ class TeacherAITest(unittest.TestCase):
     def test_report_preserves_missing_evidence(self):
         report = dict(title='诊断', conclusion='记录不足', questionCounts=[None]*5, radar=[None]*5, timeline=[], mode='数据不足', transitions=[], suggestions=[], issues=[], limitations=['无课堂录像'])
         with patch('server.app.call_model', return_value=json.dumps(report)):
-            self.assertEqual(classroom_report(ContextRequest(context={})), report)
+            self.assertEqual(classroom_report(ContextRequest(context={})), {**report, "rubric": {}, "beforeAfter": {}})
 
     def test_report_accepts_named_dimensions(self):
         report = dict(title='诊断', conclusion='记录不足', questionCounts={}, radar={}, timeline=[], mode='数据不足', transitions=[], suggestions=[], issues=[], limitations=[])

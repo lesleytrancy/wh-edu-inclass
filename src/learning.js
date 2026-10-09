@@ -25,19 +25,36 @@ export function publishLearningContent(state, stage, content) {
   return { ...state, updatedAt: sentAt, learningPack: { ...state.learningPack, [stage]: published }, publishedLearningPack: { ...state.publishedLearningPack, [stage]: published }, learningNotifications: [notification, ...(state.learningNotifications || [])].slice(0, 20) }
 }
 
+export const resourceStages = ['preview', 'discussion', 'review']
+
+export function updateResourceContent(state, stage, content, confirmed = false) {
+  if (!resourceStages.includes(stage)) return state
+  const patch = content === undefined ? {} : stage === 'discussion'
+    ? { discussions: content, discussionQuestion: content.map(item => item.question).filter(Boolean).join('\n\n') }
+    : { learningPack: { ...state.learningPack, [stage]: content } }
+  return { ...state, ...patch, resourceConfirmations: { ...state.resourceConfirmations, [stage]: confirmed }, updatedAt: Date.now() }
+}
+
+export function resourcesConfirmed(state) {
+  return !!state.learningPack?.preview && !!state.learningPack?.review && resourceStages.every(stage => state.resourceConfirmations?.[stage])
+}
+
+export function studentStageAvailable(phase, stage) {
+  return stage === 'preview' || (stage === 'class' && ['class', 'after'].includes(phase)) || (stage === 'review' && phase === 'after')
+}
+
 export function publishLearningPack(state) {
   const pack = state.learningPack
-  if (!pack?.preview || !pack?.review) return state
-  if ([pack.preview, pack.review].some(stage => stage.exercises.some(exercise => exercise.approved === false))) return state
+  if (!resourcesConfirmed(state)) return state
   const sentAt = Date.now()
-  const copy = Object.fromEntries(['preview', 'review'].map(stage => [stage, { ...pack[stage], exercises: pack[stage].exercises.map(exercise => ({ ...exercise, options: [...exercise.options] })) }]))
+  const copy = structuredClone(pack)
   const notification = { id: `learning-pack-${sentAt}`, stage: 'preview', title: '课前预习与课后复习资料已发布', sentAt }
-  return { ...state, updatedAt: sentAt, publishedLearningPack: copy, publishedLearningFallback: !!state.aiFallback, learningNotifications: [notification, ...(state.learningNotifications || [])].slice(0, 20) }
+  return { ...state, updatedAt: sentAt, publishedLearningPack: copy, publishedDiscussions: structuredClone(state.discussions || []), publishedDiscussionQuestion: state.discussionQuestion, publishedLearningFallback: !!state.aiFallback, learningNotifications: [notification, ...(state.learningNotifications || [])].slice(0, 20) }
 }
 
 export function submitLearningAnswers(state, stage, studentId, responses) {
   const content = state.publishedLearningPack?.[stage] || state.learningPack?.[stage]
-  if (!content || !['preview', 'review'].includes(stage) || content.exercises.some(exercise => !exercise.options.includes(responses[exercise.id]))) return state
+  if (!content || !['preview', 'review'].includes(stage) || content.exercises.some(exercise => exercise.type && exercise.type !== 'single' ? !responses[exercise.id]?.trim() : !exercise.options.includes(responses[exercise.id]))) return state
   const now = Date.now()
   const answers = Object.fromEntries(content.exercises.map(exercise => [exercise.id, { text: responses[exercise.id], simulated: false, submittedAt: now }]))
   const stageFeedback = { ...state.learningFeedback?.[stage] }
