@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { AI_TIMEOUT_MS, generateLearningPack, request } from '../src/ai.js'
+import { AI_TIMEOUT_MS, AI_TOOL_TIMEOUT_MS, generateLearningPack, request } from '../src/ai.js'
 import { demoResult } from '../src/ai-demo.js'
 import { publishLearningPack } from '../src/learning.js'
 import { createDiscussion } from '../src/discussion.js'
 
 const originalFetch = globalThis.fetch
 const input = { stage: 'preview', role: 'student', content: { exercises: [{ id: '1', question: '成因', answer: 'A' }] }, responses: { '1': 'A' } }
-const paths = ['/api/resources', '/api/agents/resources/regenerate', '/api/agents/classroom/snapshot-question', '/api/agents/chat', '/api/agents/learning/analyze', '/api/agents/teacher/insight', '/api/agents/classroom/analyze', '/api/agents/classroom/report']
+const paths = ['/api/resources', '/api/agents/resources/regenerate', '/api/agents/classroom/snapshot-question', '/api/agents/learning/analyze', '/api/agents/teacher/insight', '/api/agents/classroom/analyze']
 test('learning content uses a 30 second generation budget', () => {
   assert.equal(AI_TIMEOUT_MS, 30000)
+  assert.ok(AI_TOOL_TIMEOUT_MS > 210000, 'frontend must wait beyond the thinking backend deadline')
 })
-test('all AI paths return karst presets on timeout', async () => {
+test('legacy demo generation paths preserve explicit presets on timeout', async () => {
   try {
     globalThis.fetch = (_, { signal }) => new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))))
     for (const path of paths) {
@@ -52,5 +53,16 @@ test('resource polling timeout yields a complete publishable karst lesson', asyn
     assert.match(state.learningNotifications[0].title, /已发布/)
     assert.equal(state.publishedLearningFallback, true)
     assert.equal(createDiscussion([{ id: '1', name: '学生' }], state.discussionQuestion).question, pack.discussionQuestion)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('QA and real reports surface timeout instead of fabricated classroom evidence', async () => {
+  try {
+    for (const path of ['/api/agents/chat', '/api/agents/classroom/report', '/api/agents/classroom/report-section', '/api/agents/resources/generate-template', '/api/agents/classroom/minutes']) {
+      globalThis.fetch = async () => new Response('{}', { status: 504 })
+      await assert.rejects(request(path, {}), /超时/)
+      globalThis.fetch = (_, { signal }) => new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))))
+      await assert.rejects(request(path, {}, 5), /超时/)
+    }
   } finally { globalThis.fetch = originalFetch }
 })

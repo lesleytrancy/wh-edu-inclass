@@ -11,7 +11,7 @@ class TeacherAITest(unittest.TestCase):
         response.read.return_value = b'{"choices":[{"message":{"content":"ok"}}]}'
         response.__enter__ = Mock(return_value=response)
         response.__exit__ = Mock(return_value=False)
-        with patch.dict('os.environ', {'DOUBAO_API_KEY': 'test-key', 'DOUBAO_MODEL': 'test-model'}), patch('server.app.urlopen', return_value=response) as send:
+        with patch.dict('os.environ', {'DOUBAO_API_KEY': 'test-key', 'DOUBAO_MODEL': 'test-model'}, clear=True), patch('server.app.urlopen', return_value=response) as send:
             self.assertEqual(call_model([{'role': 'user', 'content': 'test'}]), 'ok')
         request = send.call_args.args[0]
         self.assertEqual(request.get_method(), 'POST')

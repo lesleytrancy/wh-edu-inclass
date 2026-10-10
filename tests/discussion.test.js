@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createDiscussion, joinDiscussion, startDiscussion, setGroupAnswer, summarizeDiscussion, formatDiscussionMinutes, submitDiscussionMinutes } from '../src/discussion.js'
+import { createDiscussion, joinDiscussion, startDiscussion, setGroupAnswer, setDiscussionText, summarizeDiscussion, formatDiscussionMinutes, submitDiscussionMinutes } from '../src/discussion.js'
 
 const students = [{ id: '1', name: '组长甲' }, { id: '2', name: '组长乙' }, { id: '3', name: '组员' }]
 let state = { questionRun: createDiscussion(students, '讨论问题', 100) }
@@ -45,3 +45,25 @@ assert.equal(minutesState.discussionMinutes['600:group-1'].text, edited)
 assert.equal(minutesState.questionRun.answers[0].text, edited)
 assert.equal(submitDiscussionMinutes(minutesState, 600, '1', 'group-1', edited), minutesState)
 assert.equal(minutesState.discussionMinutes['600:group-1'].transcript, undefined)
+
+let textState = { questionRun: createDiscussion(students, '文字与语音讨论', 700) }
+textState = joinDiscussion(textState, 700, '1', 'group-1')
+textState = joinDiscussion(textState, 700, '3', 'group-1')
+textState = startDiscussion(textState, 700)
+textState = setGroupAnswer(textState, 700, '1', 'group-1', '组长录音纪要', true)
+textState = setDiscussionText(textState, 700, students[2], 'group-1', '我的文字观点')
+assert.match(textState.questionRun.answers[0].text, /组长录音纪要/)
+assert.match(textState.questionRun.answers[0].text, /组员：我的文字观点/)
+assert.equal(textState.questionRun.answers[0].active, true, 'member typing must not stop leader recording')
+assert.equal(setGroupAnswer(textState, 700, '3', 'group-1', '非法录音', true), textState)
+assert.equal(setDiscussionText(textState, 700, students[1], 'group-1', '外组成员'), textState)
+assert.equal(setDiscussionText(textState, 700, students[2], 'group-1', '   '), textState)
+textState = setDiscussionText(textState, 700, students[0], 'group-1', '组长也可以输入')
+textState = setDiscussionText(textState, 700, students[2], 'group-1', '修改后的观点')
+textState = setGroupAnswer(textState, 700, '1', 'group-1', '更新后的录音纪要', false)
+assert.match(textState.questionRun.answers[0].text, /修改后的观点/)
+assert.match(textState.questionRun.answers[0].text, /组长也可以输入/)
+assert.match(textState.questionRun.answers[0].text, /更新后的录音纪要/)
+assert.doesNotMatch(textState.questionRun.answers[0].text, /我的文字观点/)
+const doneState = { ...textState, questionRun: { ...textState.questionRun, status: 'result' } }
+assert.equal(setDiscussionText(doneState, 700, students[2], 'group-1', '结束后的修改'), doneState)

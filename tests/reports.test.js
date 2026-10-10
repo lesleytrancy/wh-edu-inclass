@@ -53,3 +53,21 @@ test('report messages retain their lesson and filter other teachers', () => {
   assert.equal(reportNotifications(state).length, 1)
   assert.equal(reportNotifications({ ...state, teacherUsername: 't2' }).length, 0)
 })
+
+test('missing evidence is null instead of a demo score', () => {
+  assert.ok(studentMetrics({}, student).performance.every(row => row.value === null))
+})
+test('lesson score history records only real scored responses and replaces the same lesson', async () => {
+  const { recordLessonScores } = await import('../src/reports.js')
+  const state = { sectionId: 'lesson1', lessonTitle: '第一课', learningPack: { preview: { exercises: [{ id: 'a', answer: 'A' }] } }, learningAnswers: { preview: { '1': { a: { text: 'A' } }, '2': { a: { text: 'A', simulated: true } } } } }
+  const next = recordLessonScores(state, [student, { id: '2' }])
+  assert.equal(next.lessonScoreHistory['1'][0].score, 100)
+  assert.equal(next.lessonScoreHistory['2'], undefined)
+  assert.equal(recordLessonScores(next, [student]), next)
+  const updated = recordLessonScores({ ...next, learningAnswers: { preview: { '1': { a: { text: 'B' } } } } }, [student])
+  assert.equal(updated.lessonScoreHistory['1'].length, 1)
+  assert.equal(updated.lessonScoreHistory['1'][0].score, 0)
+  const later = recordLessonScores({ ...next, sectionId: 'lesson2', learningAnswers: { preview: { '1': { a: { text: 'B' } } } } }, [student])
+  assert.equal(later.lessonScoreHistory['1'].length, 2)
+  assert.equal(studentMetrics(later, student).growth[0].value, -100)
+})

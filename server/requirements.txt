@@ -3,3 +3,4 @@ uvicorn[standard]>=0.34,<1
 python-multipart>=0.0.20,<1
 markitdown[pdf,docx,pptx]>=0.1,<1
 pypdf>=5,<7
+python-dotenv>=1.0,<2

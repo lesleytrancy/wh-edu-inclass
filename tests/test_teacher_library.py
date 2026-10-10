@@ -28,7 +28,7 @@ class TeacherLibraryTest(unittest.TestCase):
                 with self.assertRaises(HTTPException):
                     module.get_teacher_library(self.request())
                 library = module.get_teacher_library(self.request(first['token']))['library']
-                self.assertEqual(len(library['books']), 2)
+                self.assertEqual(len([b for b in library['books'] if b['id'] != 'demo-book']), 2)
                 self.assertEqual(len(library['books'][0]['chapters']), 6)
                 self.assertEqual(len(library['books'][1]['chapters']), 5)
                 section = library['books'][0]['chapters'][0]['sections'][0]

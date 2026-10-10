@@ -6,8 +6,8 @@ import { pathToFileURL } from 'node:url'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { transformWithOxc } from 'vite'
-import { createDiscussion, joinDiscussion, startDiscussion, setGroupAnswer, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from '../src/discussion.js'
-import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback } from '../src/learning.js'
+import { createDiscussion, joinDiscussion, startDiscussion, setGroupAnswer, setDiscussionText, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from '../src/discussion.js'
+import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback, updateResourceContent, publishLearningPack, resourcesConfirmed } from '../src/learning.js'
 
 // Render actual JSX without booting the DOM or opening a browser.
 const require = createRequire(import.meta.url)
@@ -20,17 +20,23 @@ source = source.replace(/^const geographyTools = .*$/m, 'const geographyTools = 
 source = source.replace(/^const PowerPointPresentation = .*$/m, "const PowerPointPresentation = () => React.createElement('div', null, '网页 PPT 播放器')")
 source = `${iconImport};
 import React, { useEffect, useMemo, useRef, useState } from ${JSON.stringify(reactUrl)};
+import { clientPaths, getClientView } from ${JSON.stringify(new URL('../src/clients.js', import.meta.url).href)};
+import { className } from ${JSON.stringify(new URL('../src/students.js', import.meta.url).href)};
 import { setQuestionAnswer } from ${JSON.stringify(new URL('../src/questions.js', import.meta.url).href)};
 import { useVoiceCapture } from ${JSON.stringify(new URL('../src/useVoiceCapture.js', import.meta.url).href)};
-import { createDiscussion, defaultDiscussionQuestion, joinDiscussion, startDiscussion, setGroupAnswer, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from ${JSON.stringify(new URL('../src/discussion.js', import.meta.url).href)};
+import { createDiscussion, defaultDiscussionQuestion, joinDiscussion, startDiscussion, setGroupAnswer, setDiscussionText, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from ${JSON.stringify(new URL('../src/discussion.js', import.meta.url).href)};
 import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback, publishLearningContent, publishLearningPack, updateResourceContent, resourcesConfirmed, studentStageAvailable } from ${JSON.stringify(new URL('../src/learning.js', import.meta.url).href)};
 import { saveMaterials, useMaterial, getMaterialPage, turnMaterialPage, isPowerPoint, isPresentation } from ${JSON.stringify(new URL('../src/materials.js', import.meta.url).href)};
 import { teacherAccounts, findSection, updateSection, addSection, removeSection, loginTeacher, loadTeacherLibrary, saveTeacherLibrary, logoutTeacher } from ${JSON.stringify(new URL('../src/teacher-library.js', import.meta.url).href)};
 import { addReportNotification, reportNotifications } from ${JSON.stringify(new URL('../src/reports.js', import.meta.url).href)};
 import { setPresentationPage } from ${JSON.stringify(new URL('../src/pptx-state.js', import.meta.url).href)};
 import AnalysisReports, { StudentReport, PreLearningReport } from ${JSON.stringify(await jsxModuleUrl(new URL('../src/AnalysisReports.jsx', import.meta.url)))};
+import { ClassroomMinutesPanel, useClassroomRecording } from ${JSON.stringify(await jsxModuleUrl(new URL('../src/AIComponents.jsx', import.meta.url)))};
+import { ChatContent, ChatMessages } from ${JSON.stringify(await jsxModuleUrl(new URL('../src/ChatContent.jsx', import.meta.url)))};
+import { useClassroomReport } from ${JSON.stringify(new URL('../src/useClassroomReport.js', import.meta.url).href)};
+import { recordLessonScores } from ${JSON.stringify(new URL('../src/reports.js', import.meta.url).href)};
 ${source}
-export { ClassManager, Teacher, Student, StageControls, GeographyTools, GeographyToolMenu, TeacherQuestion, DiscussionSetup, StudentDiscussion, ScreenDiscussion, MaterialWorkspace, LearningOverview, LearningExercises, UploadedPresentation, StudyBuddy, QuestionRecorder, StudentQuestion, CanvasPagination, BigScreen };`
+export { Topbar, StudentLogin, TeacherLogin, Console, Agent, ClassManager, Teacher, Student, StageControls, GeographyTools, GeographyToolMenu, TeacherQuestion, DiscussionSetup, StudentDiscussion, ScreenDiscussion, MaterialWorkspace, LearningOverview, LearningExercises, UploadedPresentation, StudyBuddy, QuestionRecorder, StudentQuestion, CanvasPagination, BigScreen };`
 const { code } = await transformWithOxc(source, 'main.jsx', { jsx: { runtime: 'classic' } })
 const components = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 const students = [{ id: '1', name: '组长甲' }, { id: '2', name: '组长乙' }, { id: '3', name: '组员' }]
@@ -38,6 +44,14 @@ const render = (name, props = {}) => {
   const library = { selectedSectionId: 'lesson', books: [{ id: 'book-0', name: '地理必修第一册（自然地理）', chapters: [{ id: 'chapter-0-0', name: '第一章 宇宙中的地球', sections: [{ id: 'lesson', name: '第一节 地球的宇宙环境', title: '第一节 地球的宇宙环境', materials: props.state?.materials || [] }] }] }] }
   return renderToStaticMarkup(React.createElement(components[name], { onClose() {}, onStart() {}, onEdit() {}, onStop() {}, updateState() {}, teacher: { name: '地理老师-范佳琪' }, library, setLibrary() {}, ...props }))
 }
+for (const html of [render('Topbar', { title: '教师端' }), render('StudentLogin', { students }), render('TeacherLogin'), render('BigScreen', { state: { phase: 'before', materials: [] } })]) {
+  assert.doesNotMatch(html, /返回控制台|返回工作台|brand-button|back-home/)
+  assert.doesNotMatch(html, /<(button|a)[^>]*><div class="brand/)
+}
+const clientLauncher = render('Console')
+for (const role of ['teacher', 'student', 'screen']) assert.match(clientLauncher, new RegExp(`href="/${role}" target="_blank"`))
+assert.match(render('ClassManager', { students }), /高一三班/)
+assert.doesNotMatch(render('ClassManager', { students }), /六年级三班/)
 let state = { questionRun: createDiscussion(students, '自定义讨论题', 100) }
 assert.match(render('DiscussionSetup', { run: state.questionRun }), /自定义讨论题/)
 assert.match(render('DiscussionSetup', { run: state.questionRun }), /语音替换问题/)
@@ -45,7 +59,9 @@ assert.match(render('StudentDiscussion', { run: state.questionRun, student: stud
 state = joinDiscussion(state, 100, '3', 'group-1')
 const member = render('StudentDiscussion', { run: state.questionRun, student: students[2] })
 assert.match(member, /麦克风已禁用/)
-assert.doesNotMatch(member, /student-mic|<textarea/)
+assert.doesNotMatch(member, /student-mic/)
+assert.match(member, /textarea[^>]*aria-label="我的讨论内容"/)
+assert.match(member, /提交讨论内容/)
 state = joinDiscussion(state, 100, '1', 'group-1')
 assert.match(render('StudentDiscussion', { run: state.questionRun, student: students[0] }), /开始小组录音/)
 state = startDiscussion(state, 100)
@@ -74,7 +90,7 @@ const folder = render('MaterialWorkspace', { state: { ...folderState, learningPa
 assert.match(folder, /教案.docx/)
 assert.match(folder, /仅用于解析/)
 assert.equal((folder.match(/type="radio"/g) || []).length, 1)
-assert.match(folder, /AI 解析所选资料（1）/)
+assert.match(folder, /生成课堂资源（1）/)
 const previewEditor = render('MaterialWorkspace', { state: folderState, students, view: 'preview' })
 assert.match(previewEditor, /课前学习材料/)
 assert.match(previewEditor, /学习任务/)
@@ -108,6 +124,65 @@ assert.match(discussionEditor, /新建讨论题目/)
 assert.match(discussionEditor, /AI生成/)
 assert.match(discussionEditor, /解析/)
 assert.match(discussionEditor, /讨论目标/)
+
+// Agent-generated and persisted templates must use the same editable tabs as legacy resources.
+const resourceTemplate = {
+  pre_study: { objectives: '预习目标专属内容', tasks: ['预习任务一', '预习任务二', '预习任务三'] },
+  class_discussion: { question: '课堂讨论专属问题', analysis: '课堂讨论专属解析', goal: '课堂讨论专属目标' },
+  after_school: { summary: '复习总结专属内容', exercises: ['复习活动一'] },
+}
+const generatedState = {
+  ...folderState, resourceTemplate, resourceConfirmations: {},
+  learningPack: {
+    preview: { title: '课前学习', task: [resourceTemplate.pre_study.objectives, ...resourceTemplate.pre_study.tasks].join('\n'), exercises: [] },
+    review: { title: '课后巩固', summary: resourceTemplate.after_school.summary, task: [resourceTemplate.after_school.summary, ...resourceTemplate.after_school.exercises].join('\n'), exercises: [] },
+  },
+  discussions: [{ id: 'generated-discussion', ...resourceTemplate.class_discussion }],
+  discussionQuestion: resourceTemplate.class_discussion.question,
+}
+for (const view of ['preview', 'discussion', 'review']) {
+  const html = render('MaterialWorkspace', { state: generatedState, students, view })
+  assert.match(html, /content-editor/)
+  assert.match(html, /保存/)
+  assert.match(html, /重新生成/)
+  assert.doesNotMatch(html, /课堂资源生成结果|配置配套测验/)
+  if (view === 'discussion') {
+    assert.match(html, /课堂讨论专属问题/)
+    assert.match(html, /课堂讨论专属解析/)
+    assert.match(html, /课堂讨论专属目标/)
+    assert.match(html, /新建讨论题目/)
+    assert.match(html, /AI生成/)
+    assert.doesNotMatch(html, /预习目标专属内容|复习总结专属内容/)
+  } else {
+    assert.match(html, /生成题目/)
+    assert.match(html, /新增题目/)
+    assert.match(html, view === 'preview' ? /预习目标专属内容/ : /复习总结专属内容/)
+    assert.doesNotMatch(html, view === 'preview' ? /复习总结专属内容|课堂讨论专属问题/ : /预习目标专属内容|课堂讨论专属问题/)
+  }
+}
+assert.match(render('MaterialWorkspace', { state: generatedState, students }), /预习目标专属内容/)
+assert.equal(publishLearningPack(generatedState), generatedState)
+let savedGenerated = generatedState
+for (const stage of ['preview', 'review']) {
+  savedGenerated = updateResourceContent(savedGenerated, stage, { ...savedGenerated.learningPack[stage], exercises: learningPack[stage].exercises }, true)
+}
+savedGenerated = updateResourceContent(savedGenerated, 'discussion', savedGenerated.discussions, true)
+assert.equal(resourcesConfirmed(savedGenerated), true)
+const publishedGenerated = publishLearningPack(savedGenerated)
+assert.deepEqual(publishedGenerated.publishedLearningPack, savedGenerated.learningPack)
+assert.deepEqual(publishedGenerated.publishedDiscussions, savedGenerated.discussions)
+for (const view of ['preview', 'review']) {
+  const html = render('MaterialWorkspace', { state: publishedGenerated, students, view })
+  assert.match(html, /已发送/)
+  assert.match(html, /生成题目/)
+  assert.match(html, /参考答案/)
+  assert.match(html, new RegExp(learningPack[view].exercises[0].question))
+}
+const editedGenerated = updateResourceContent(publishedGenerated, 'preview', { ...publishedGenerated.learningPack.preview, task: '编辑后的任务一\n任务二\n任务三' })
+assert.equal(resourcesConfirmed(editedGenerated), false)
+assert.equal(editedGenerated.publishedLearningPack.preview.task, generatedState.learningPack.preview.task)
+assert.match(render('MaterialWorkspace', { state: editedGenerated, students, view: 'preview' }), /编辑后的任务一/)
+assert.doesNotMatch(render('MaterialWorkspace', { state: editedGenerated, students, view: 'preview' }), /已发送/)
 const notifiedStudent = render('Student', { student: students[0], state: { ...prepared, learningNotifications: [{ id: 'notice-1', stage: 'preview', title: '新预习已发布', sentAt: 10 }] } })
 assert.match(notifiedStudent, /学习资料通知/)
 assert.match(notifiedStudent, /<i><\/i><\/button><div class=\"notification-panel\"|<i><\/i><\/button><\/div>/)
@@ -192,7 +267,7 @@ const recordingCode = (await transformWithOxc(recordingSource, 'recording.jsx', 
 const recordingComponents = await import(`data:text/javascript;base64,${Buffer.from(recordingCode).toString('base64')}`)
 const recording = renderToStaticMarkup(React.createElement(recordingComponents.StudentDiscussion, { run: minutesRun, student: students[0], updateState() {}, stateMinutes: savedMinutes }))
 assert.match(recording, /停止小组录音/)
-assert.doesNotMatch(recording, /<textarea|经过确认的讨论要点|>提交<|>已提交/)
+assert.doesNotMatch(recording, /aria-label="会议纪要"|经过确认的讨论要点|>提交<|>已提交/)
 assert.match(render('QuestionRecorder', {}), /开始提问录音/)
 assert.doesNotMatch(render('QuestionRecorder', {}), /雨水是怎样一步步/)
 assert.match(render('StudentQuestion', { run: { id: 1, question: '实际问题', status: 'answering', answers: [], endAt: Date.now() + 1000 }, student: students[0] }), /开始回答/)

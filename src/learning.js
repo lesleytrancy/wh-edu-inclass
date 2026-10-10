@@ -40,7 +40,7 @@ export function resourcesConfirmed(state) {
 }
 
 export function studentStageAvailable(phase, stage) {
-  return stage === 'preview' || (stage === 'class' && ['class', 'after'].includes(phase)) || (stage === 'review' && phase === 'after')
+  return stage === 'preview' || (stage === 'class' && ['class', 'after'].includes(phase)) || (['review', 'growth'].includes(stage) && phase === 'after')
 }
 
 export function publishLearningPack(state) {
@@ -49,7 +49,7 @@ export function publishLearningPack(state) {
   const sentAt = Date.now()
   const copy = structuredClone(pack)
   const notification = { id: `learning-pack-${sentAt}`, stage: 'preview', title: '课前预习与课后复习资料已发布', sentAt }
-  return { ...state, updatedAt: sentAt, publishedLearningPack: copy, publishedDiscussions: structuredClone(state.discussions || []), publishedDiscussionQuestion: state.discussionQuestion, publishedLearningFallback: !!state.aiFallback, learningNotifications: [notification, ...(state.learningNotifications || [])].slice(0, 20) }
+  return { ...state, updatedAt: sentAt, learningPublishedAt: sentAt, phase: 'before', activity: 'screen', classStartedAt: null, classEndedAt: null, questionRun: null, questionHistory: [], activityHistory: [], studentUtterances: [], discussionMinutes: {}, classroomTranscript: '', classroomMinutes: null, classroomReport: null, learningAnswers: { preview: {}, review: {} }, learningFeedback: {}, learningNotificationReads: {}, publishedLearningPack: copy, publishedDiscussions: structuredClone(state.discussions || []), publishedDiscussionQuestion: state.discussionQuestion, publishedLearningFallback: !!state.aiFallback, learningNotifications: [notification, ...(state.learningNotifications || [])].slice(0, 20) }
 }
 
 export function submitLearningAnswers(state, stage, studentId, responses) {

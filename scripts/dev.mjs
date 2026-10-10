@@ -10,7 +10,7 @@ if (!existsSync(uvicorn)) {
   process.exit(1)
 }
 
-const apiArgs = ['server.app:app', '--reload', '--host', '127.0.0.1', '--port', '8000']
+const apiArgs = ['server.app:app', '--reload', '--reload-include', '.env', '--host', '127.0.0.1', '--port', '8000']
 if (existsSync(resolve(root, '.env'))) apiArgs.push('--env-file', '.env')
 
 const viteArgs = process.argv.slice(2)

@@ -29,9 +29,28 @@ export function setGroupAnswer(state, runId, studentId, groupId, text, active) {
   const group = run?.groups?.find(group => group.id === groupId)
   if (run?.id !== runId || run.kind !== 'discussion' || run.status !== 'answering' || group?.leaderId !== studentId || run.members[studentId] !== groupId) return state
   const previous = run.answers.find(answer => answer.id === groupId)
-  if (previous?.text === text && previous.active === active) return state
-  const answer = { ...previous, id: group.id, name: `${group.number}组 · ${group.name}`, leaderName: group.leaderName, text, active }
+  if ((previous?.voiceText ?? previous?.text) === text && previous.active === active) return state
+  const voiceText = text
+  const answer = { ...previous, id: group.id, name: `${group.number}组 · ${group.name}`, leaderName: group.leaderName, voiceText, voiceUpdatedAt: Math.max(Date.now(), (previous?.voiceUpdatedAt || 0) + 1), text: groupDiscussionText(run, groupId, voiceText), active }
   return { ...state, updatedAt: Date.now(), questionRun: { ...run, answers: [...run.answers.filter(answer => answer.id !== groupId), answer] } }
+}
+
+export function groupDiscussionText(run, groupId, voiceText = '') {
+  const typed = Object.values(run.contributions || {}).filter(item => item.groupId === groupId && item.text.trim()).map(item => `${item.name}：${item.text.trim()}`)
+  return [voiceText.trim(), ...typed].filter(Boolean).join('\n\n')
+}
+
+export function setDiscussionText(state, runId, student, groupId, text) {
+  const run = state.questionRun
+  const group = run?.groups?.find(item => item.id === groupId)
+  if (run?.id !== runId || run.kind !== 'discussion' || run.status !== 'answering' || !group || run.members[student.id] !== groupId || !text.trim()) return state
+  const previous = run.contributions?.[student.id]
+  if (previous?.text === text.trim() && previous.groupId === groupId) return state
+  const nextRun = { ...run, contributions: { ...run.contributions, [student.id]: { studentId: student.id, name: student.name, groupId, text: text.trim(), updatedAt: Math.max(Date.now(), (previous?.updatedAt || 0) + 1) } } }
+  const answer = run.answers.find(item => item.id === groupId)
+  const voiceText = answer?.voiceText ?? answer?.text ?? ''
+  const combined = { ...answer, id: groupId, name: `${group.number}组 · ${group.name}`, leaderName: group.leaderName, voiceText, text: groupDiscussionText(nextRun, groupId, voiceText), active: !!answer?.active }
+  return { ...state, updatedAt: Date.now(), questionRun: { ...nextRun, answers: [...run.answers.filter(item => item.id !== groupId), combined] } }
 }
 
 export function formatDiscussionMinutes(question, groupNumber, transcript) {

@@ -1,4 +1,5 @@
-export const DEMO_STORAGE_KEYS = ['wh-students', 'wh-classroom', 'wh-messages', 'wh-messages-cleared-at', 'wh-generated-geography-tools']
+import { STUDENT_STORAGE_KEY } from './students.js'
+export const DEMO_STORAGE_KEYS = ['wh-students', STUDENT_STORAGE_KEY, 'wh-classroom', 'wh-messages', 'wh-messages-cleared-at', 'wh-generated-geography-tools']
 
 export function deleteMaterialDatabase(indexedDb = indexedDB) {
   return new Promise((resolve, reject) => {

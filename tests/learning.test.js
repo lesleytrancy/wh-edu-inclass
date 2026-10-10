@@ -77,3 +77,16 @@ draftWithTasks.learningPack.preview.tasks[0] = '草稿修改'
 draftWithTasks.learningPack.preview.exercises[0].options[0] = '草稿选项'
 assert.equal(publishedSnapshot.publishedLearningPack.preview.tasks[0], '原任务')
 assert.equal(publishedSnapshot.publishedLearningPack.preview.exercises[0].options[0], learningPack.preview.exercises[0].options[0])
+
+// Republishing a completed lesson starts a fresh student learning cycle.
+const reset = publishLearningPack({ ...confirmed, phase: 'after', classStartedAt: 100, classEndedAt: 200, questionRun: { id: 1 }, learningAnswers: state.learningAnswers, learningFeedback: state.learningFeedback, classroomTranscript: '旧转写', classroomMinutes: { summary: '旧纪要' }, classroomReport: { summary: '旧报告' } })
+assert.equal(reset.phase, 'before')
+assert.equal(reset.classStartedAt, null)
+assert.equal(reset.classEndedAt, null)
+assert.equal(reset.questionRun, null)
+assert.equal(reset.classroomMinutes, null)
+assert.deepEqual(reset.learningAnswers, { preview: {}, review: {} })
+assert.deepEqual(reset.learningFeedback, {})
+assert.ok(reset.learningPublishedAt)
+for (const stage of ['class', 'review', 'growth']) assert.equal(studentStageAvailable(reset.phase, stage), false)
+assert.equal(studentStageAvailable('after', 'growth'), true)

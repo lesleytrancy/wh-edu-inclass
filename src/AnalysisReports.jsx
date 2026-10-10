@@ -1,43 +1,50 @@
-import React, { useState } from 'react'
-import { ReportChart } from './ClassroomReport.jsx'
-import { classroomRuns, reportTabs, sampleNotice, stageReport, studentMetrics } from './reports.js'
+import React, { useEffect, useState } from 'react'
+import { ReportChart, AILoading } from './ReportCharts.jsx'
+import { classroomRuns, reportTabs, stageReport, studentMetrics } from './reports.js'
 
-export function SampleNotice() { return <p className="sample-report-note" role="status">{sampleNotice}</p> }
-function MetricTable({ title, rows, analysisLabel = '分析项' }) {
-  return <section className="metric-section"><h2>{title}</h2><div className="metric-table-scroll"><table className="metric-table"><thead><tr><th>指标</th><th>{analysisLabel}</th><th>当前表现</th></tr></thead><tbody>{rows.map(row => <tr key={row.label}><th scope="row">{row.label}</th><td>{row.description}</td><td><strong>{row.value}{row.unit}</strong>{row.sample && <small>示例数据</small>}</td></tr>)}</tbody></table></div></section>
-}
+export function SampleNotice() { return <p className="sample-report-note" role="status">暂无足够的真实数据</p> }
 export function StudentReport({ state, student }) {
   const metrics = studentMetrics(state, student)
-  const sample = [...metrics.performance, ...metrics.growth].some(item => item.sample)
-  return <article className="student-analysis"><header><small>学生学情分析 · 学号 {student.id}</small><h1>{student.name}的成长报告</h1><p>从课堂表现与成长值两个维度，观察学习过程。</p></header>{sample && <SampleNotice />}
-    <MetricTable title="一、课堂表现" rows={metrics.performance} />
-    <ReportChart title={`课堂表现雷达图${metrics.performance.some(item => item.sample) ? '（含示例数据）' : ''}`} type="radar" labels={metrics.performance.filter(item => item.unit !== '次').map(item => item.label)} values={metrics.performance.filter(item => item.unit !== '次').map(item => item.value)} />
-    <MetricTable title="二、成长值" rows={metrics.growth} analysisLabel="分析项目" />
-    <section className="diagnostic-card"><h3>学习建议</h3><p>{sample ? '示例建议：尝试用“观点—证据—结论”组织回答，并在每次学习后记录一个疑问。待数据获取后，再结合实际表现进行分析。' : '结合已完成任务回顾错题，并将课堂讨论中的证据整理为自己的解释。'}</p></section>
-  </article>
+  return <article className="student-analysis"><h1>{student.name}的成长报告</h1><p>{state.simulation ? '模拟测试数据 · ' : ''}基于测验、课堂互动及学伴发言；未记录的指标保持为空。</p>{state.abilityProfiles?.[student.id] && <ReportChart title="个人与班级综合能力对比" type="radar" labels={['学业基础', '逻辑思维', '自主学习', '课堂参与', '提问品质']} datasets={[{ label: student.name, data: state.abilityProfiles[student.id], borderColor: '#8170ce', backgroundColor: '#8170ce33' }, { label: '班级平均', data: [0,1,2,3,4].map(i => { const values = Object.values(state.abilityProfiles).map(p => p[i]).filter(Number.isFinite); return values.length ? values.reduce((a,b) => a+b,0)/values.length : null }), borderColor: '#54a99a', backgroundColor: '#54a99a22' }]} />}{(state.lessonScoreHistory?.[student.id] || []).length > 0 && <ReportChart title="个人成长趋势" type="line" labels={state.lessonScoreHistory[student.id].map(x => x.label)} values={state.lessonScoreHistory[student.id].map(x => x.score)} />}{[['课堂表现', metrics.performance], ['成长值', metrics.growth]].map(([title, rows]) => <section key={title}><h2>{title}</h2><table className="metric-table"><tbody>{rows.map(row => <tr key={row.label}><th>{row.label}</th><td>{row.description}</td><td>{row.sample ? '数据不足' : `${row.value}${row.unit}`}</td></tr>)}</tbody></table><ReportChart title={title} type={title === '课堂表现' ? 'radar' : 'bar'} labels={rows.filter(row => typeof row.value !== 'string').map(row => row.label)} values={rows.filter(row => typeof row.value !== 'string').map(row => row.sample ? null : row.value)} /></section>)}</article>
 }
 export function PreLearningReport({ state, students, stage = 'preview' }) {
   const report = stageReport(state, students, stage)
-  const sample = !report.available
-  const labels = sample ? ['概念理解', '过程解释', '实践应用'] : report.rows.map(row => row.student.name)
-  const values = sample ? [85, 72, 68] : report.rows.map(row => row.graded ? Math.round(row.correct / row.graded * 100) : null)
-  return <><h1>{stage === 'preview' ? '课前预习结果分析' : '课后学习总结'}</h1>{sample && <SampleNotice />}<p>{sample ? '示例分析：基础概念掌握较好，过程解释和实践应用仍需加强。建议通过图示讲解与情境练习巩固理解。' : `已收到 ${report.rows.filter(row => row.submitted).length} 位学生的真实提交。${report.accuracy === null ? '已提交题目暂未评分。' : `客观题平均正确率 ${report.accuracy}%。`}建议结合错题组织针对性讲解。`}</p><ReportChart title={`答题正确率（%）${sample ? ' · 示例数据' : ''}`} type="bar" labels={labels} values={values} />{!sample && <div className="learning-students">{report.rows.map(row => <article key={row.student.id}><strong>{row.student.name}</strong><p>{row.submitted ? `已答 ${row.submitted}/${row.total} 题 · 已评分 ${row.graded} 题 · 正确 ${row.correct} 题` : '未提交'}</p></article>)}</div>}</>
+  return <><h1>{stage === 'preview' ? '课前报告' : '课后总结'}</h1><p>收到 {report.rows.filter(row => row.submitted).length} 位学生{state.simulation ? '模拟' : '真实'}提交。{report.accuracy === null ? '尚无已评分作答。' : `已评分题目正确率 ${report.accuracy}%。`}</p><ReportChart title="真实作答正确率（%）" type="bar" labels={report.rows.map(row => row.student.name)} values={report.rows.map(row => row.graded ? Math.round(row.correct / row.graded * 100) : null)} /></>
 }
-function ProcessReport({ state, tab }) {
-  const runs = classroomRuns(state).filter(run => run.startedAt && (tab !== 'questions' || run.kind !== 'discussion'))
-  const sample = !runs.length
-  const answers = runs.map(run => (run.answers || []).filter(answer => answer.text?.trim()).length)
-  const titles = { quality: '课堂互动参与情况', questions: '课堂提问回应情况' }
-  return <><h1>{reportTabs.find(([key]) => key === tab)[1]}</h1>{sample && <SampleNotice />}<p>{sample ? '示例分析：课堂通过概念提问、图示分析与小组讨论逐步推进。建议为解释型问题留出更多思考与回应时间。' : `已记录 ${runs.length} 次课堂活动，收集 ${answers.reduce((a, b) => a + b, 0)} 条有效回答。可结合参与人数与学生回答，调整提问节奏和讨论安排。`}</p><ReportChart title={`${titles[tab]}${sample ? ' · 示例数据' : ''}`} type="bar" labels={sample ? ['概念提问', '图示分析', '小组讨论'] : runs.map((run, i) => `${i + 1}. ${run.question || '课堂活动'}`)} values={sample ? [24, 19, 8] : answers} />{!sample && runs.map(run => <section className="diagnostic-card" key={run.id}><h3>{run.question}</h3><p>{(run.answers || []).filter(answer => answer.text?.trim()).length} 条有效回答</p>{(run.answers || []).filter(answer => answer.text?.trim()).map(answer => <p key={answer.id}><strong>{answer.name}：</strong>{answer.text}</p>)}</section>)}</>
+
+const definitions = {
+  pre: ['课前学情预判与精准备课报告', ['预习任务整体完成情况', '核心知识点预习正确率分布', '疑问与薄弱点汇总', '课前精准教学策略建议']],
+  quality: ['课堂教学质量与实时互动总览报告', ['课堂讲练节奏与互动分布', '学生注意力与参与度分析', '随堂检测实时答题质量', '课堂整体教学效果评估与反馈']],
+  questions: ['课堂提问效能与思维品质分析报告', ['提问学生覆盖面与公平性诊断', '提问问题认知层级分布', '学生应答质量与思维表现', '提问互动策略优化方案']],
+  after: ['课后作业诊断与个性化巩固报告', ['作业完成与批改整体概况', '知识点闭环掌握度演变', '错题归因与典型错误分析', '数字人伴学与个性化干预建议']],
+  growth: ['学生综合素养与学业成长画像报告', ['学业水平长周期发展趋势', '学习习惯与自主学习能力评估', '学科优势与潜力诊断', '阶段性成长里程碑与评语']],
+  standards: ['新课标核心素养与跨学科实践落实报告', ['新课标核心素养维度达成评估', '跨学科主题与情境化任务完成度', '探究性学习与实践能力表现', '基于新课标的后续教学改进建议']],
 }
-function GrowthOverview({ state, students, onStudent }) {
-  const rows = students.map(student => ({ student, metric: studentMetrics(state, student).growth[0] }))
-  const hasReal = rows.some(row => !row.metric.sample)
-  return <><h1>成长总览</h1><p>点击学生，查看课堂表现与成长值。</p>{!hasReal && <SampleNotice />}<ReportChart title={`跨课节标准分提升（分）${hasReal ? '' : ' · 示例数据'}`} type="bar" labels={hasReal ? rows.map(row => row.student.name) : ['第一阶段', '第二阶段', '第三阶段']} values={hasReal ? rows.map(row => row.metric.sample ? null : row.metric.value) : [3, 5, 8]} /><div className="student-cards">{students.map(student => <button key={student.id} onClick={() => onStudent(student)}><span>{student.name.slice(-1)}</span><strong>{student.name}</strong><small>学号 {student.id}</small></button>)}</div></>
-}
-export default function AnalysisReports({ state, students, tab, onTab, onStudent }) {
+
+export default function AnalysisReports({ state, students, tab, onTab, onStudent, onGenerate, busy = false, error = '', embedded = false, report = null, demoState, generatedTabs = [] }) {
   const [selected, setSelected] = useState(null)
-  return <main className="analysis-workspace"><nav className="report-sidebar" aria-label="分析报告分类"><h2>分析报告</h2>{reportTabs.map(([key, label]) => <button key={key} className={key === tab ? 'active' : ''} onClick={() => { setSelected(null); onTab(key) }}>{label}</button>)}</nav><section className="analysis-content">
-    {selected ? <><button className="ghost" onClick={() => setSelected(null)}>返回成长总览</button><StudentReport state={state} student={selected} /></> : tab === 'pre' || tab === 'after' ? <PreLearningReport state={state} students={students} stage={tab === 'pre' ? 'preview' : 'review'} /> : tab === 'quality' || tab === 'questions' ? <>{tab === 'quality' && state.classroomReport && <section className="diagnostic-card">{state.classroomReport.fallback && <SampleNotice />}<h2>{state.classroomReport.title}</h2><p>{state.classroomReport.conclusion}</p><ReportChart title="教学能力多维分析" type="radar" labels={['目标达成', '教学节奏', '提问有效性', '回应质量', '课堂管理']} values={state.classroomReport.radar} /></section>}<ProcessReport state={state} tab={tab} /></> : tab === 'growth' ? <GrowthOverview state={state} students={students} onStudent={student => { setSelected(student); onStudent?.(student) }} /> : <><h1>新课标落实</h1><SampleNotice /><p>示例分析：通过地貌观察、成因解释和情境探究，落实区域认知、综合思维、地理实践力与人地协调观。待获取课标目标及评价记录后更新。</p><ReportChart title="地理核心素养目标落实 · 示例数据（%）" type="radar" labels={['区域认知', '综合思维', '地理实践力', '人地协调观']} values={[85, 78, 72, 80]} /></>}
+  useEffect(() => { setSelected(null) }, [state.sectionId])
+  const displayState = report?.demo && demoState ? demoState : state
+  const [title, chapters] = definitions[tab] || definitions.pre
+  const section = report?.sections?.[tab]
+  const data = report?.analytics
+  const charts = data?.charts?.[tab] || []
+  const number = reportTabs.findIndex(([key]) => key === tab) + 1
+  return <main className={`analysis-workspace ${embedded ? 'embedded-report report' : ''}`} >{!embedded && <nav className="report-sidebar" aria-label="分析报告分类"><h2>分析报告</h2><p>全流程学情洞察</p>{reportTabs.map(([key, label], i) => <button key={key} className={key === tab ? 'active' : ''} aria-current={key === tab ? 'page' : undefined} onClick={() => { setSelected(null); onTab(key) }}><span className="report-nav-number">0{i+1}</span>{label}{generatedTabs.includes(key) && <span className="report-nav-dot" />}</button>)}</nav>}<section className="analysis-content">
+    <header className="report-page-header"><div><p className="report-eyebrow">班级管理 / 分析报告</p><h1>{selected ? `${selected.name}的成长画像` : title}</h1><p>{state.lessonTitle || '当前课堂'} · {students.length} 名学生{report?.generatedAt ? ` · 生成于 ${new Date(report.generatedAt).toLocaleString('zh-CN')}` : ''}</p></div><div className="editor-actions"><button className="primary" disabled={busy || !onGenerate} onClick={() => onGenerate(tab)}>{busy ? '正在生成…' : report && !report.demo ? '重新生成当前报告' : '生成当前报告'}</button>{report && <button className="ghost" onClick={() => window.print()}>导出 PDF</button>}</div></header>
+    {report?.demo && <div className="report-source-notice" role="status"><strong>当前为演示报告,真实报告正在生成</strong><span>基于当前班级 {students.length} 名学生的模拟记录。</span></div>}
+    <div className="report-kpis">{[['预习正确率', data?.previewAccuracy, '%'], ['课后正确率', data?.reviewAccuracy, '%'], ['课堂提问', data?.questionCount, '次'], ['已评分课堂回答', data?.gradedClassAnswers, '条']].map(([label, value, unit]) => <article key={label}><span>{label}</span><strong>{value ?? '—'}<small>{value == null ? '' : unit}</small></strong></article>)}</div>
+    {error && <p role="alert" className="voice-error">{error}</p>}
+    {selected ? <><button className="ghost" onClick={() => setSelected(null)}>返回成长总览</button><StudentReport state={displayState} student={selected} /></> : <>
+      {busy && <AILoading text="正在生成当前报告，期间继续展示演示内容…" />}
+      <section className="report-ai-summary"><div><span className="report-ai-badge">AI 分析</span><h2>教学诊断摘要</h2></div><p>{section?.summary || '图表展示已记录的学情统计。生成报告后，AI 将结合学生作答、学伴对话及课堂纪要，给出诊断与教学建议。'}</p>{section?.evidence?.length > 0 && <details><summary>查看分析依据（{section.evidence.length} 条）</summary><ul>{section.evidence.map((text, i) => <li key={i}>{text}</li>)}</ul></details>}</section>
+      <div className="report-chapters">{chapters.map((heading, i) => {
+        const chapter = section?.chapters?.[i]
+        return <section className="report-chapter" key={heading}><h2><span>{number}.{i+1}</span>{heading}</h2>{chapter ? <><p>{chapter.analysis}</p>{chapter.recommendations?.length > 0 && <div className="report-recommendations"><strong>教学建议</strong><ul>{chapter.recommendations.map((text, j) => <li key={j}>{text}</li>)}</ul></div>}</> : <p className="report-placeholder">生成报告后展示本节分析与建议。</p>}{charts[i] && <ReportChart {...charts[i]} />}</section>
+      })}</div>
+      {tab === 'growth' && <section className="report-students"><h2>学生个人成长画像</h2><div className="student-cards">{students.map(student => <button key={student.id} onClick={() => { setSelected(student); onStudent?.(student) }}><span className="report-avatar">{student.name.slice(-2)}</span><strong>{student.name}</strong><small>查看个人报告 →</small></button>)}</div></section>}
+      {tab === 'standards' && <section className="report-boundaries"><h3>评价依据</h3><p>{displayState.curriculumGoals || '尚未提供课标目标原文，无法评价正式达标情况。'}</p><p>学校人才培养要求：{displayState.trainingRequirements || '尚未提供学校方案。'}</p></section>}
+      {report?.limitations?.length > 0 && <section className="report-boundaries"><h3>数据范围与限制</h3><ul>{report.limitations.map((text, i) => <li key={i}>{text}</li>)}</ul></section>}
+    </>}
   </section></main>
 }
