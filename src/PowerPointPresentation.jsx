@@ -63,7 +63,5 @@ export default forwardRef(function PowerPointPresentation({ material, phase = 'b
     <div className="pptx-viewer-host" aria-busy={!content}>
       {content ? <I18nextProvider i18n={i18n}><PowerPointViewer ref={viewer} content={content} fileName={material.name} filePath={`classroom/${material.id}`} canEdit={editable && editing && phase !== 'class'} showToolbar={editable && editing && phase !== 'class'} showThumbnails={editable && phase !== 'class'} autosave={false} hiddenActions={['file', 'share', 'broadcast', 'record', 'help']} defaultLocale="zh-CN" theme={vermilionLightTheme} fitPadding={0} maxFitScale={null} initialSlide={page - 1} onDirtyChange={onDirtyChange} onSlideCountChange={setCount} onActiveSlideChange={index => { if (editable && count && index + 1 !== page) onPageChange?.(index + 1, count) }} /></I18nextProvider> : !error && <div className="ppt-loading" role="status">正在读取 PPT 课件…</div>}
     </div>
-    {error && <p className="ppt-error" role="alert">{error}</p>}
-    {editable && showControls && count > 0 && <nav className="ppt-page-controls" aria-label="PPT 翻页"><button aria-label="PPT 上一页" disabled={page <= 1 || saving} onClick={() => viewer.current.goPrev()}>上一页</button><span>{page} / {count}</span><button aria-label="PPT 下一页" disabled={page >= count || saving} onClick={() => viewer.current.goNext()}>下一页</button></nav>}
   </div>
 })
