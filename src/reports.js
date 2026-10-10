@@ -6,6 +6,36 @@ export const sampleNotice = '数据尚未获取，当前为示例数据'
 export function classroomRuns(state) {
   return [...new Map([...(state.questionHistory || []), state.questionRun].filter(Boolean).map(run => [run.id, run])).values()]
 }
+
+export function classroomParticipation(state, students = []) {
+  const roster = new Set(students.map(student => String(student.id)))
+  const participants = new Set()
+  const start = state.classStartedAt
+  const inLesson = at => Number.isFinite(at) && at >= start && (!state.classEndedAt || at <= state.classEndedAt)
+  const add = id => { if (id != null && roster.has(String(id))) participants.add(String(id)) }
+  const submitted = record => record && !record.simulated && typeof record.text === 'string' && record.text.trim()
+  if (!start || state.phase === 'before' || !roster.size) return { participated: 0, total: roster.size, rate: null }
+  for (const run of classroomRuns(state)) {
+    if (run.simulated || !inLesson(run.startedAt)) continue
+    if (run.kind !== 'discussion') {
+      for (const answer of run.answers || []) if (submitted(answer)) add(answer.id)
+      continue
+    }
+    for (const contribution of Object.values(run.contributions || {})) {
+      if (submitted(contribution)) add(contribution.studentId)
+    }
+    for (const answer of run.answers || []) {
+      // A group submission establishes the leader's contribution, not every member's.
+      const voiceText = answer.voiceText ?? (run.contributions ? '' : answer.text)
+      if (!submitted({ ...answer, text: voiceText })) continue
+      add(run.groups?.find(group => group.id === answer.id)?.leaderId)
+    }
+  }
+  for (const utterance of state.studentUtterances || []) {
+    if (utterance.stage === 'class' && submitted(utterance) && inLesson(utterance.at)) add(utterance.studentId)
+  }
+  return { participated: participants.size, total: roster.size, rate: Math.round(participants.size / roster.size * 100) }
+}
 export function learningStats(state, stage, studentId) {
   const content = state.publishedLearningPack?.[stage] || state.learningPack?.[stage]
   const records = state.learningAnswers?.[stage]?.[studentId] || {}

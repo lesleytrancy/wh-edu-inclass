@@ -4,7 +4,7 @@ export const AI_TIMEOUT_MS = 30000
 export const AI_TOOL_TIMEOUT_MS = 240000
 
 export async function request(path, options, timeoutMs = AI_TIMEOUT_MS) {
-  const allowDemo = !['/api/agents/chat', '/api/agents/classroom/report', '/api/agents/classroom/report-section'].includes(path)
+  const allowDemo = !['/api/agents/chat', '/api/agents/classroom/report', '/api/agents/classroom/report-section', '/api/agents/students/growth-reports'].includes(path)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -74,6 +74,9 @@ export function analyzeLearningAnswers({ stage, studentId, content, responses, c
 export function generateTeacherInsight(context) {
   return request('/api/agents/teacher/insight', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ context }) }, AI_TOOL_TIMEOUT_MS)
 }
+export function generateStudentGrowthReports(context) {
+  return request('/api/agents/students/growth-reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ context }) }, AI_TOOL_TIMEOUT_MS)
+}
 export function generateClassroomReport(context) {
   return request('/api/agents/classroom/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ context, sections: true }) }, AI_TOOL_TIMEOUT_MS)
 }
@@ -81,7 +84,7 @@ export function generateReportSection(tab, context) {
   return request('/api/agents/classroom/report-section', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tab, context }) }, AI_TOOL_TIMEOUT_MS)
 }
 export function getDemoReports(context) {
-  return request('/api/classroom/demo-reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ context }) })
+  return request('/api/classroom/demo-reports', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ context }) })
 }
 export function regenerateContent(stage, content, materialIds) {
   return request('/api/agents/resources/regenerate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage, content, materialIds }) }, AI_TOOL_TIMEOUT_MS)

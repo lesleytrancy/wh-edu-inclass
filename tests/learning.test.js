@@ -64,8 +64,8 @@ assert.equal(changed.resourceConfirmations.preview, true)
 assert.equal(publishLearningPack(changed), changed)
 assert.equal(changed.publishedLearningPack.review.title, '课后复习')
 assert.equal(resourcesConfirmed(JSON.parse(JSON.stringify(confirmed))), true)
-for (const [phase, classAvailable, reviewAvailable] of [['before', false, false], ['class', true, false], ['after', true, true]]) {
-  assert.equal(studentStageAvailable(phase, 'preview'), true)
+for (const [phase, classAvailable, reviewAvailable] of [['before', false, false], ['class', true, false], ['after', false, true]]) {
+  assert.equal(studentStageAvailable(phase, 'preview'), phase !== 'after')
   assert.equal(studentStageAvailable(phase, 'class'), classAvailable)
   assert.equal(studentStageAvailable(phase, 'review'), reviewAvailable)
 }
@@ -88,5 +88,6 @@ assert.equal(reset.classroomMinutes, null)
 assert.deepEqual(reset.learningAnswers, { preview: {}, review: {} })
 assert.deepEqual(reset.learningFeedback, {})
 assert.ok(reset.learningPublishedAt)
-for (const stage of ['class', 'review', 'growth']) assert.equal(studentStageAvailable(reset.phase, stage), false)
+for (const stage of ['class', 'review']) assert.equal(studentStageAvailable(reset.phase, stage), false)
+for (const phase of ['before', 'class', 'after']) assert.equal(studentStageAvailable(phase, 'growth'), true)
 assert.equal(studentStageAvailable('after', 'growth'), true)

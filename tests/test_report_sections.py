@@ -43,6 +43,36 @@ class IndividualReportsTest(unittest.TestCase):
             self.assertEqual(json.loads(model.call_args.args[0][1]['content'])['requestedReport'], tab)
             self.assertFalse(result['demo'])
 
+    def test_demo_chapters_use_analysis_and_distinct_actionable_advice(self):
+        report = build_demo_reports(self.context)['report']
+        recommendations = []
+        for section in report['sections'].values():
+            prose = [section['summary'], *section['evidence']]
+            for chapter in section['chapters']:
+                prose.append(chapter['analysis'])
+                self.assertTrue(chapter['recommendations'])
+                recommendations.extend(chapter['recommendations'])
+            for text in prose:
+                self.assertNotIn('模拟', text)
+                self.assertNotIn('演示', text)
+        self.assertEqual(len(set(recommendations)), 24)
+        self.assertIn('模拟数据', report['limitations'][0])
+
+    def test_demo_analysis_matches_roster_and_chart_statistics(self):
+        for roster in (self.roster[:1], self.roster):
+            demo = build_demo_reports({'reportStudents': roster})
+            report, state = demo['report'], demo['state']
+            complete = sum(len(answers) == 5 for answers in state['learningAnswers']['preview'].values())
+            analysis = report['sections']['pre']['chapters'][0]['analysis']
+            self.assertIn(f'共{len(roster)}人', analysis)
+            self.assertIn(f'{complete}人完成全部题目', analysis)
+            self.assertIn(f'{len(roster) - complete}人仍有题目待完成', analysis)
+            self.assertIn(f'{report["analytics"]["previewAccuracy"]:g}%', report['sections']['pre']['chapters'][1]['analysis'])
+        empty = build_demo_reports({'reportStudents': []})['report']
+        for section in empty['sections'].values():
+            for chapter in section['chapters']:
+                self.assertIn('无法判断', chapter['analysis'])
+
     def test_invalid_chapter_count_and_model_failure_surface_errors(self):
         with patch.object(app, 'call_model', return_value='{"summary":"不完整","evidence":[],"chapters":[]}'):
             with self.assertRaises(HTTPException):

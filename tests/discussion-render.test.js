@@ -25,7 +25,7 @@ import { className } from ${JSON.stringify(new URL('../src/students.js', import.
 import { setQuestionAnswer } from ${JSON.stringify(new URL('../src/questions.js', import.meta.url).href)};
 import { useVoiceCapture } from ${JSON.stringify(new URL('../src/useVoiceCapture.js', import.meta.url).href)};
 import { createDiscussion, defaultDiscussionQuestion, joinDiscussion, startDiscussion, setGroupAnswer, setDiscussionText, summarizeDiscussion, submitDiscussionMinutes, formatDiscussionMinutes } from ${JSON.stringify(new URL('../src/discussion.js', import.meta.url).href)};
-import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback, publishLearningContent, publishLearningPack, updateResourceContent, resourcesConfirmed, studentStageAvailable } from ${JSON.stringify(new URL('../src/learning.js', import.meta.url).href)};
+import { createLearningPack, simulateLearningAnswers, submitLearningAnswers, saveLearningFeedback, reportLearningFeedback, publishLearningContent, publishLearningPack, updateResourceContent, resourcesConfirmed, studentStageAvailable, studentDefaultStage } from ${JSON.stringify(new URL('../src/learning.js', import.meta.url).href)};
 import { saveMaterials, useMaterial, getMaterialPage, turnMaterialPage, isPowerPoint, isPresentation } from ${JSON.stringify(new URL('../src/materials.js', import.meta.url).href)};
 import { teacherAccounts, findSection, updateSection, addSection, removeSection, loginTeacher, loadTeacherLibrary, saveTeacherLibrary, logoutTeacher } from ${JSON.stringify(new URL('../src/teacher-library.js', import.meta.url).href)};
 import { addReportNotification, reportNotifications } from ${JSON.stringify(new URL('../src/reports.js', import.meta.url).href)};
@@ -34,7 +34,8 @@ import AnalysisReports, { StudentReport, PreLearningReport } from ${JSON.stringi
 import { ClassroomMinutesPanel, useClassroomRecording } from ${JSON.stringify(await jsxModuleUrl(new URL('../src/AIComponents.jsx', import.meta.url)))};
 import { ChatContent, ChatMessages } from ${JSON.stringify(await jsxModuleUrl(new URL('../src/ChatContent.jsx', import.meta.url)))};
 import { useClassroomReport } from ${JSON.stringify(new URL('../src/useClassroomReport.js', import.meta.url).href)};
-import { recordLessonScores } from ${JSON.stringify(new URL('../src/reports.js', import.meta.url).href)};
+import { recordLessonScores, classroomParticipation } from ${JSON.stringify(new URL('../src/reports.js', import.meta.url).href)};
+import { realLearningState, saveStudentGrowthReports } from ${JSON.stringify(new URL('../src/student-growth.js', import.meta.url).href)};
 ${source}
 export { Topbar, StudentLogin, TeacherLogin, Console, Agent, ClassManager, Teacher, Student, StageControls, GeographyTools, GeographyToolMenu, TeacherQuestion, DiscussionSetup, StudentDiscussion, ScreenDiscussion, MaterialWorkspace, LearningOverview, LearningExercises, UploadedPresentation, StudyBuddy, QuestionRecorder, StudentQuestion, CanvasPagination, BigScreen };`
 const { code } = await transformWithOxc(source, 'main.jsx', { jsx: { runtime: 'classic' } })

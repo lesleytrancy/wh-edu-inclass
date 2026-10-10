@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { generateReportSection, getDemoReports } from './ai.js'
 import { classroomReportScope, reportTabs } from './reports.js'
 
+// Refresh open report views when demonstration content changes during development.
+const DEMO_REPORT_VERSION = 2
+
 // Real results live only in this viewing session. Demo evidence never enters classroom state.
 export function useClassroomReport(state, students) {
   const latest = useRef(state), epoch = useRef(0), pending = useRef(new Map())
@@ -11,7 +14,7 @@ export function useClassroomReport(state, students) {
   latest.current = state
   const scope = classroomReportScope(state)
   const roster = JSON.stringify(students.map(({ id, name, group }) => ({ id, name, group })))
-  const demoKey = JSON.stringify([roster, state.lessonTitle])
+  const demoKey = JSON.stringify([DEMO_REPORT_VERSION, roster, state.lessonTitle])
   const reset = () => {
     epoch.current += 1
     pending.current.clear()

@@ -39,8 +39,20 @@ export function resourcesConfirmed(state) {
   return !!state.learningPack?.preview && !!state.learningPack?.review && resourceStages.every(stage => state.resourceConfirmations?.[stage])
 }
 
-export function studentStageAvailable(phase, stage) {
-  return stage === 'preview' || (stage === 'class' && ['class', 'after'].includes(phase)) || (['review', 'growth'].includes(stage) && phase === 'after')
+export function studentStageAvailable(context, stage) {
+  const state = typeof context === 'string' ? { phase: context } : context || {}
+  const locked = state.studentActivitiesLocked || state.phase === 'after'
+  if (stage === 'growth') return true
+  if (stage === 'preview') return !locked
+  if (stage === 'class') return state.phase === 'class'
+  return stage === 'review' && state.phase === 'after'
+}
+
+export function studentDefaultStage(state) {
+  if (state.phase === 'after') return 'review'
+  if (state.phase === 'class') return 'class'
+  if (state.studentActivitiesLocked) return 'growth'
+  return 'preview'
 }
 
 export function publishLearningPack(state) {
@@ -49,10 +61,11 @@ export function publishLearningPack(state) {
   const sentAt = Date.now()
   const copy = structuredClone(pack)
   const notification = { id: `learning-pack-${sentAt}`, stage: 'preview', title: '课前预习与课后复习资料已发布', sentAt }
-  return { ...state, updatedAt: sentAt, learningPublishedAt: sentAt, phase: 'before', activity: 'screen', classStartedAt: null, classEndedAt: null, questionRun: null, questionHistory: [], activityHistory: [], studentUtterances: [], discussionMinutes: {}, classroomTranscript: '', classroomMinutes: null, classroomReport: null, learningAnswers: { preview: {}, review: {} }, learningFeedback: {}, learningNotificationReads: {}, publishedLearningPack: copy, publishedDiscussions: structuredClone(state.discussions || []), publishedDiscussionQuestion: state.discussionQuestion, publishedLearningFallback: !!state.aiFallback, learningNotifications: [notification, ...(state.learningNotifications || [])].slice(0, 20) }
+  return { ...state, updatedAt: sentAt, learningPublishedAt: sentAt, studentActivitiesLocked: false, studentGrowthReportStatus: null, phase: 'before', activity: 'screen', classStartedAt: null, classEndedAt: null, questionRun: null, questionHistory: [], activityHistory: [], studentUtterances: [], discussionMinutes: {}, classroomTranscript: '', classroomMinutes: null, classroomReport: null, learningAnswers: { preview: {}, review: {} }, learningFeedback: {}, learningNotificationReads: {}, publishedLearningPack: copy, publishedDiscussions: structuredClone(state.discussions || []), publishedDiscussionQuestion: state.discussionQuestion, publishedLearningFallback: !!state.aiFallback, learningNotifications: [notification, ...(state.learningNotifications || [])].slice(0, 20) }
 }
 
 export function submitLearningAnswers(state, stage, studentId, responses) {
+  if (stage === 'preview' && !studentStageAvailable(state, stage)) return state
   const content = state.publishedLearningPack?.[stage] || state.learningPack?.[stage]
   if (!content || !['preview', 'review'].includes(stage) || content.exercises.some(exercise => exercise.type && exercise.type !== 'single' ? !responses[exercise.id]?.trim() : !exercise.options.includes(responses[exercise.id]))) return state
   const now = Date.now()
