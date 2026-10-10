@@ -27,7 +27,7 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ########## Stage 3: nginx 静态站点 + /api 反代（对外唯一入口） ##########
-FROM nginx:1.27-alpine
+FROM nginx:1.27-alpine AS final
 COPY --from=frontend /app/dist /usr/share/nginx/html
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
