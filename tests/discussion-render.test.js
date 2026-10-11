@@ -90,6 +90,8 @@ const folderState = { ...prepared, publishedLearningPack: undefined, materials: 
 const folder = render('MaterialWorkspace', { state: { ...folderState, learningPack: null }, students })
 assert.match(folder, /教案.docx/)
 assert.match(folder, /仅用于解析/)
+assert.match(folder, /aria-label="删除教案.docx"/)
+assert.match(folder, /aria-label="删除展示.pdf"/)
 assert.equal((folder.match(/type="radio"/g) || []).length, 1)
 assert.match(folder, /生成课堂资源（1）/)
 const previewEditor = render('MaterialWorkspace', { state: folderState, students, view: 'preview' })

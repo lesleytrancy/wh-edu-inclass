@@ -254,15 +254,15 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .pdf-status { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); padding: 6px 12px; border-radius: 8px; background: #ffffffdd; color: #444; pointer-events: none; }
 
 /* Course material library and generated-content editor */
-.material-workspace { display: grid; grid-template-columns: minmax(300px, 34%) minmax(0, 1fr); gap: 0; min-height: calc(100vh - 78px); padding: 28px; background: #f3f4f6; }
+.material-workspace { display: grid; grid-template-columns: minmax(0, 34%) minmax(0, 1fr); gap: 0; min-height: calc(100vh - 78px); padding: 28px; background: #f3f4f6; }
 .material-library, .material-editor { min-width: 0; background: #fff; }
-.material-library { padding: 28px 24px; border-right: 1px solid var(--line); }
+.material-library { display: flex; flex-direction: column; min-height: 0; overflow: auto; padding: 28px 24px; border-right: 1px solid var(--line); }
 .material-library h1 { margin: 12px 0; font-size: 30px; }
 .teacher-name { font-size: 12px; font-weight: 700; white-space: nowrap; }
 .teacher-logout { white-space: nowrap; }
 .teacher-save-error { margin: 0; padding: 9px 28px; color: #9c3445; background: #fff0f2; font-size: 12px; }
 .login-card select { display: block; width: 100%; height: 40px; margin-top: 6px; padding: 0 11px; border: 1px solid #EEEEEF; border-radius: 8px; background: white; color: var(--ink); font: inherit; }
-.course-tree { margin-bottom: 24px; border: 1px solid #e7e9ee; border-radius: 8px; overflow: hidden; }
+.course-tree { flex-shrink: 0; margin-bottom: 24px; border: 1px solid #e7e9ee; border-radius: 8px; overflow: hidden; }
 .course-tree button { color: var(--ink); font: inherit; }
 .course-tree-heading { display: flex; align-items: center; gap: 9px; width: 100%; padding: 12px; border: 0; background: #f5f6f9; text-align: left; font-size: 13px !important; font-weight: 700 !important; }
 .course-tree-heading .icon:last-child { margin-left: auto; transition: transform .15s; }
@@ -282,20 +282,23 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .tree-icon-button:hover, .tree-icon-button:focus-visible { background: #dfe9ff; }
 .tree-icon-button.remove:hover { color: #bc4051; background: #fff0f2; }
 .tree-icon-button:disabled { opacity: .35; }
-.lesson-title { margin-bottom: 15px; }
+.lesson-title { flex-shrink: 0; margin-bottom: 15px; }
 .lesson-title label { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; color: #666b78; font-size: 11px; font-weight: 700; }
 .lesson-title input { width: 100%; min-height: 42px; padding: 4px 0; border: 0; border-bottom: 1px solid #d7dbe4; border-radius: 0; outline: none; color: var(--ink); background: transparent; font-size: 22px; font-weight: 700; }
 .lesson-title input:focus { border-bottom-color: #527cff; }
-.material-library > .upload-button { width: max-content; margin: 24px 0 18px; }
-.course-files { display: grid; gap: 8px; }
-.course-files article { display: flex; align-items: center; min-height: 68px; padding: 9px 12px; border: 1px solid #eeeef3; border-radius: 12px; background: #fff; }
+.material-library > .upload-button { flex-shrink: 0; width: max-content; margin: 24px 0 18px; }
+.course-files { display: grid; align-content: start; gap: 8px; min-height: 0; overflow: auto; scrollbar-width: thin; }
+.course-files article { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-height: 68px; padding: 9px 12px; border: 1px solid #eeeef3; border-radius: 12px; background: #fff; }
 .course-files article.selected { border-color: #9ebcff; background: #f5f8ff; }
-.analysis-check { display: flex; flex: 1; min-width: 0; align-items: center; gap: 10px; cursor: pointer; }
+.analysis-check { display: flex; flex: 1 1 180px; min-width: 0; align-items: center; gap: 10px; cursor: pointer; }
 .analysis-check > input { width: 17px; height: 17px; accent-color: #725cff; }
 .analysis-check > span:last-child { min-width: 0; }
 .analysis-check strong, .analysis-check small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .analysis-check strong { font-size: 12px; }.analysis-check small, .analysis-only { margin-top: 4px; color: var(--muted); font-size: 10px; }
 .material-select { flex: none; display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; }.material-select input { accent-color: #6ca93e; }
+.material-delete { flex: none; padding: 5px 8px; border: 0; border-radius: 6px; background: #fff0f2; color: #a52c43; font-size: 11px; cursor: pointer; }
+.material-delete:hover { background: #ffe0e6; }
+.material-delete:disabled { opacity: .4; cursor: not-allowed; }
 .material-editor { display: flex; flex-direction: column; }
 .demo-content-note { margin: 12px 20px 0; padding: 10px 14px; border-radius: 9px; color: #805a22; background: #fff5db; font-size: 13px; line-height: 1.5; }
 .material-tabs { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)) auto; min-height: 70px; background: #f5f6f9; }
@@ -396,7 +399,11 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .teacher-global-grid .teacher-grid[hidden] { display: none; }
 .teacher-global-grid .stage-card { height: 100%; }
 .teacher-global-grid .management-page { padding: 0; }
-.teacher-global-grid .material-workspace { padding: 0; }
+.teacher-global-grid .material-workspace { padding: 0; min-height: 0; height: calc(100dvh - 108px); }
+.teacher-page:has(> .topbar-collapsed) .material-workspace { height: calc(100dvh - 92px); }
+.teacher-page:has(> .topbar-reopen) .material-workspace { height: calc(100dvh - 36px); }
+.material-editor { min-height: 0; overflow: auto; }
+@media (max-width: 850px) { .teacher-global-grid .material-workspace { height: auto; }.material-library { max-height: calc(100dvh - 140px); padding: 20px 16px; }.course-files { max-height: 50dvh; }.material-editor { overflow: visible; } }
 .teacher-global-grid .rollcall-button { position: static; margin-top: 18px; width: fit-content; }
 .management-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .student-manage-actions { margin-top: 24px; }

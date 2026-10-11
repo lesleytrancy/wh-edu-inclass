@@ -8,11 +8,11 @@ test('PowerPoint files are recognized separately from PDF and Word materials', (
   assert.ok(isPresentation({ name: 'lesson.pdf' }))
   assert.equal(isPresentation({ name: 'lesson.docx' }), false)
 })
-test('preview keeps edit mode separate and class starts presentation mode', () => {
-  assert.equal(presentationMode('before'), 'preview')
+test('classroom preview starts playing and editing exits playback', () => {
+  assert.equal(presentationMode('before'), 'present')
   assert.equal(presentationMode('before', true), 'edit')
   assert.equal(presentationMode('class', true), 'present')
-  assert.equal(presentationMode('after'), 'preview')
+  assert.equal(presentationMode('after'), 'present')
 })
 test('PPT pages synchronize only valid material pages', () => {
   const state = { materials: [{ id: 'pptx' }] }

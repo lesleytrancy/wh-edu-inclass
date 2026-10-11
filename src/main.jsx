@@ -355,7 +355,7 @@ function Teacher({ onLogout, teacher, library, setLibrary, libraryError, state, 
       <section className="stage-card">
         <div className="stage-status"><span><i /> {state.phase === 'before' ? '课前准备' : state.phase === 'after' ? '课堂已结束' : '课堂进行中'}</span>{!isPowerPoint(material) || selectedTool ? <b>{selectedTool?.name || material?.name || '请上传课中课件'}</b> : null}<div className="ppt-header-slot" hidden={!isPowerPoint(material) || !!selectedTool} ref={setPresentationHeader} /></div>
         <div className={`slide ${dragTarget ? 'question-drop-target' : ''}`} onDragEnter={() => setDragTarget(true)} onDragOver={e => e.preventDefault()} onDragLeave={e => !e.currentTarget.contains(e.relatedTarget) && setDragTarget(false)} onDrop={dropQuestion}>
-          <UploadedPresentation material={material} phase={state.phase} presentationRef={presentationRef} headerTarget={presentationHeader} onSavePresentation={saved => setLibrary(current => updateSection(current, state.sectionId, section => ({ ...section, materials: section.materials.map(item => item.id === saved.id ? saved : item) })))} onPageChange={(page, total) => updateState(current => setPresentationPage(current, material.id, page, total))} page={materialPage} onTurn={(direction, total) => updateState(current => turnMaterialPage(current, material.id, direction, total))} showControls={!selectedTool && drawMode !== 'board'} />
+          <UploadedPresentation material={material} phase={state.phase} active={teacherPage === 'classroom'} presentationRef={presentationRef} headerTarget={presentationHeader} onSavePresentation={saved => setLibrary(current => updateSection(current, state.sectionId, section => ({ ...section, materials: section.materials.map(item => item.id === saved.id ? saved : item) })))} onPageChange={(page, total) => updateState(current => setPresentationPage(current, material.id, page, total))} page={materialPage} onTurn={(direction, total) => updateState(current => turnMaterialPage(current, material.id, direction, total))} showControls={!selectedTool && drawMode !== 'board'} />
           {draggingQuestion && <div className="question-drop-layer" />} 
           <canvas ref={pptCanvasRef} width="1400" height="800" className={`canvas annotation ${drawMode === 'ppt' ? 'active' : ''}`} onPointerDown={beginDraw} onPointerMove={draw} onPointerUp={e => e.currentTarget.hasPointerCapture(e.pointerId) && e.currentTarget.releasePointerCapture(e.pointerId)} />
           <canvas ref={boardCanvasRef} width="1400" height="800" className={`canvas whiteboard ${drawMode === 'board' ? 'active' : ''}`} onPointerDown={beginDraw} onPointerMove={draw} onPointerUp={e => e.currentTarget.hasPointerCapture(e.pointerId) && e.currentTarget.releasePointerCapture(e.pointerId)} />
@@ -596,14 +596,24 @@ function MaterialWorkspace({ state, students, updateState, library, setLibrary, 
     } catch (error) { setError(error.message || '资料保存失败，请重试。') }
     finally { input.value = ''; setUploading(false) }
   }
+  const removeMaterial = material => {
+    setLibrary(current => updateSection(current, section.id, item => ({ ...item, materials: item.materials.filter(file => file.id !== material.id) })))
+    updateState(current => {
+      if (current.sectionId !== section.id) return current
+      const { [material.id]: removedPage, ...materialPages } = current.materialPages || {}
+      return { ...current, updatedAt: Date.now(), materials: current.materials.filter(file => file.id !== material.id), materialId: current.materialId === material.id ? null : current.materialId, materialPages, analysisMaterialIds: (current.analysisMaterialIds || []).filter(id => id !== material.id), parsedMaterialIds: (current.parsedMaterialIds || []).filter(id => id !== material.id) }
+    })
+  }
   const toggle = id => updateState(current => ({ ...current, updatedAt: Date.now(), analysisMaterialIds: current.analysisMaterialIds?.includes(id) ? current.analysisMaterialIds.filter(item => item !== id) : [...(current.analysisMaterialIds || []), id] }))
   return <main className="material-workspace"><section className="material-library">
     <CourseTree library={library} setLibrary={setLibrary} state={state} />
     <LessonTitle key={section?.id} section={section} onSave={title => setLibrary(current => updateSection(current, current.selectedSectionId, item => ({ ...item, title, ...(item.name.startsWith('新建小节 ') ? { name: title } : {}) })))} />
+    <label className={`upload-button ${uploading ? 'disabled' : ''}`}><Icon name="upload" />{uploading ? '正在上传…' : '资源上传'}<input type="file" multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,image/*" disabled={uploading || analyzing} onChange={upload} /></label>
     {error && <p className="voice-error" role="alert">{error}</p>}
     <div className="course-files">{materials.map(material => <article key={material.id} className={selected.includes(material.id) ? 'selected' : ''}>
       <label className="analysis-check"><input type="checkbox" checked={selected.includes(material.id)} onChange={() => toggle(material.id)} /><span className="file-icon"><Icon name="folder" /></span><span><strong>{material.name}</strong><small>教师上传 · 点击选择用于解析</small></span></label>
       {isPresentation(material) ? <label className="material-select"><input type="radio" name="class-material" checked={state.materialId === material.id} onChange={() => updateState(current => ({ ...current, materialId: material.id, updatedAt: Date.now() }))} />课中展示</label> : <small className="analysis-only">仅用于解析</small>}
+      <button type="button" className="material-delete" aria-label={`删除${material.name}`} title={`删除${material.name}`} disabled={analyzing || uploading} onClick={() => removeMaterial(material)}>删除</button>
     </article>)}</div>
     {!materials.length && <div className="upload-empty"><Icon name="upload" /><h2>课程文件夹为空</h2><p>支持 PDF、Word、PPT、文本和图片资料。</p></div>}
   </section><section className="material-editor">
@@ -741,10 +751,10 @@ function DiscussionContentEditor({ saved, question, discussions, materialIds, on
   </form>
 }
 
-function UploadedPresentation({ material, page = 1, phase = 'before', onTurn, onPageChange, onSavePresentation, presentationRef, headerTarget, showControls = true }) {
+function UploadedPresentation({ material, page = 1, phase = 'before', active = true, onTurn, onPageChange, onSavePresentation, presentationRef, headerTarget, showControls = true }) {
   const asset = useMaterial(material?.id, material?.revision)
   if (!material) return <div className="presentation-empty"><h2>等待教师上传课中展示资料</h2><p>教师原始课件将在这里展示，不自动生成 PPT。</p></div>
-  if (isPowerPoint(material)) return <React.Suspense fallback={<div className="presentation-empty">正在加载 PPT 播放器…</div>}><PowerPointPresentation ref={presentationRef} key={material.id} material={material} phase={phase} page={page} editable={!!onTurn} headerTarget={headerTarget} showControls={showControls} onPageChange={onPageChange} onSave={onSavePresentation} /></React.Suspense>
+  if (isPowerPoint(material)) return <React.Suspense fallback={<div className="presentation-empty">正在加载 PPT 播放器…</div>}><PowerPointPresentation ref={presentationRef} key={material.id} material={material} phase={phase} active={active} page={page} editable={!!onTurn} headerTarget={headerTarget} showControls={showControls} onPageChange={onPageChange} onSave={onSavePresentation} /></React.Suspense>
   if (asset.error) return <div className="presentation-empty"><h2>{material.name}</h2><p role="alert">{asset.error}</p></div>
   if (!asset.url) return <div className="presentation-empty">正在读取原始课件…</div>
   if (material.type?.startsWith('image/')) return <img className="uploaded-image" src={asset.url} alt={material.name} />
