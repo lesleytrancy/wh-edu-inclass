@@ -15,7 +15,8 @@ services:
       target: final
     image: wh-edu-inclass-web:latest
     ports:
-      - "8080:80"             # 对外访问 http://服务器IP:8080
+      - "80:80"               # 域名访问 http://wh-teacher.stringx.top（需域名已备案）
+      - "9000:80"             # 兼容旧入口 http://服务器IP:9000
     depends_on:
       - api
     restart: unless-stopped
