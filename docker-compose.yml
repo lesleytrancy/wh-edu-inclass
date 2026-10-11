@@ -1,0 +1,24 @@
+services:
+  api:
+    build:
+      context: .
+      target: backend
+    image: wh-edu-inclass-api:latest
+    env_file: .env            # DOUBAO_API_KEY 等密钥只放这里，不进镜像
+    volumes:
+      - app-data:/data        # SQLite 库 + 上传的课件，升级镜像不丢数据
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: final
+    image: wh-edu-inclass-web:latest
+    ports:
+      - "8080:80"             # 对外访问 http://服务器IP:8080
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  app-data:
